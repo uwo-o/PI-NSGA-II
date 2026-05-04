@@ -90,19 +90,36 @@ void KozaIndividual::evaluate(const PDEProblem& prob,
     tree_size = tree->count_nodes();
     root_type = tree->get_type();
 
-    // MSE dominio — Laplaciano por diferencias finitas
+    // MSE dominio — Laplaciano por diferencias finitas y pesado espacial (Alpha)
     double sum_dom = 0.0;
+    double total_w = 0.0;
     for (auto& p : dom) {
         double lap = fd_laplacian(tree, p.x, p.y);
         double u   = tree->eval(p.x, p.y);
-        double res = lap + prob.k2 * u - prob.source(p.x, p.y);
-        // Sanitizar NaN/Inf
+        double res;
+        if (prob.type == PDE::SCHRODINGER) {
+            double r2 = (p.x - 0.5) * (p.x - 0.5) + (p.y - 0.5) * (p.y - 0.5);
+            double V = 4.0 * r2;
+            double E = 4.0;
+            res = lap + (E - V) * u;
+        } else {
+            res = lap + prob.k2 * u - prob.source(p.x, p.y);
+        }
+        
         if (!std::isfinite(res)) { mse_domain = 1e10; mse_boundary = 1e10; return; }
-        sum_dom += res * res;
-    }
-    mse_domain = sum_dom / (double)dom.size();
 
-    // MSE frontera — diferencia con condición de Dirichlet
+        // Pesado espacial: más peso cerca de los bordes
+        double dist_x = std::min(p.x, 1.0 - p.x);
+        double dist_y = std::min(p.y, 1.0 - p.y);
+        double min_dist = std::min(dist_x, dist_y);
+        double weight = 1.0 / (min_dist + 0.1); 
+
+        sum_dom += weight * res * res;
+        total_w += weight;
+    }
+    mse_domain = Config::ALPHA_WEIGHT * (sum_dom / total_w);
+
+    // MSE frontera — diferencia con condición de Dirichlet (Beta = 1 - Alpha)
     double sum_bnd = 0.0;
     for (auto& p : bnd) {
         double u    = tree->eval(p.x, p.y);
@@ -110,7 +127,7 @@ void KozaIndividual::evaluate(const PDEProblem& prob,
         if (!std::isfinite(diff)) { mse_boundary = 1e10; return; }
         sum_bnd += diff * diff;
     }
-    mse_boundary = sum_bnd / (double)bnd.size();
+    mse_boundary = (1.0 - Config::ALPHA_WEIGHT) * (sum_bnd / (double)bnd.size());
 }
 
 // ─── KozaSolver ───────────────────────────────────────────────────────────────

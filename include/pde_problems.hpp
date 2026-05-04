@@ -40,3 +40,4 @@ struct PDEProblem {
 PDEProblem make_laplace();
 PDEProblem make_poisson();
 PDEProblem make_helmholtz(double k = 1.0);
+PDEProblem make_schrodinger();

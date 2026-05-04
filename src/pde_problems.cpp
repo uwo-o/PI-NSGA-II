@@ -44,6 +44,11 @@ double PDEProblem::exact(double x, double y) const {
         case PDE::POISSON:
         case PDE::HELMHOLTZ:
             return std::sin(PI*x) * std::sin(PI*y);
+        case PDE::SCHRODINGER: {
+            double dx = x - 0.5;
+            double dy = y - 0.5;
+            return std::exp(-(dx*dx + dy*dy));
+        }
     }
     return 0.0;
 }
@@ -72,10 +77,17 @@ double PDEProblem::bc(double x, double y) const {
     return exact(x, y);
 }
 
-// ─── Residuo del PDE usando AD (método propuesto) ─────────────────────────────
-// R = (∂²u/∂x² + ∂²u/∂y²) + k²·u - f(x,y)
 double PDEProblem::pde_residual_ad(const AD& ad, double x, double y) const {
     double laplacian = ad.dxx + ad.dyy;
+    if (type == PDE::SCHRODINGER) {
+        // Ecuación de Schrödinger independiente del tiempo (dimensionless)
+        // -∇²ψ + V(x,y)ψ = Eψ  =>  ∇²ψ + (E - V(x,y))ψ = 0
+        // Para u = exp(-(x-0.5)² - (y-0.5)²), V = 4r² y E = 4
+        double r2 = (x - 0.5) * (x - 0.5) + (y - 0.5) * (y - 0.5);
+        double V = 4.0 * r2;
+        double E = 4.0;
+        return laplacian + (E - V) * ad.v;
+    }
     return laplacian + k2 * ad.v - source(x, y);
 }
 
@@ -99,5 +111,11 @@ PDEProblem make_helmholtz(double k) {
     PDEProblem p;
     p.type = PDE::HELMHOLTZ;
     p.k2   = k * k;
+    return p;
+}
+PDEProblem make_schrodinger() {
+    PDEProblem p;
+    p.type = PDE::SCHRODINGER;
+    p.k2   = 0.0;
     return p;
 }

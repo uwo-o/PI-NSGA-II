@@ -16,17 +16,26 @@ void PIIndividual::evaluate(const PDEProblem& prob,
     tree_size = tree->count_nodes();
     root_type = tree->get_type();
 
-    // MSE dominio — residuo del PDE con AD simbólico exacto
+    // MSE dominio — residuo del PDE con AD simbólico exacto y pesado espacial (Alpha)
     double sum_dom = 0.0;
+    double total_w = 0.0;
     for (auto& p : dom) {
         AD ad = tree->ad_eval(p.x, p.y);
         double res = prob.pde_residual_ad(ad, p.x, p.y);
         if (!std::isfinite(res)) { mse_domain = 1e10; mse_boundary = 1e10; return; }
-        sum_dom += res * res;
+        
+        // Pesado espacial: más peso cerca de los bordes para evitar "coincidir solo al centro"
+        double dist_x = std::min(p.x, 1.0 - p.x);
+        double dist_y = std::min(p.y, 1.0 - p.y);
+        double min_dist = std::min(dist_x, dist_y);
+        double weight = 1.0 / (min_dist + 0.1); // El peso aumenta cerca de los bordes (dist -> 0)
+        
+        sum_dom += weight * res * res;
+        total_w += weight;
     }
-    mse_domain = sum_dom / (double)dom.size();
+    mse_domain = Config::ALPHA_WEIGHT * (sum_dom / total_w);
 
-    // MSE frontera — diferencia con condición de Dirichlet
+    // MSE frontera — diferencia con condición de Dirichlet (Beta = 1 - Alpha)
     double sum_bnd = 0.0;
     for (auto& p : bnd) {
         double u    = tree->eval(p.x, p.y);
@@ -34,7 +43,7 @@ void PIIndividual::evaluate(const PDEProblem& prob,
         if (!std::isfinite(diff)) { mse_boundary = 1e10; return; }
         sum_bnd += diff * diff;
     }
-    mse_boundary = sum_bnd / (double)bnd.size();
+    mse_boundary = (1.0 - Config::ALPHA_WEIGHT) * (sum_bnd / (double)bnd.size());
 }
 
 // ─── PISolver ─────────────────────────────────────────────────────────────────

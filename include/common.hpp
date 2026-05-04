@@ -9,13 +9,14 @@
 #include <limits>
 
 // ─── PDE types ────────────────────────────────────────────────────────────────
-enum class PDE { LAPLACE, POISSON, HELMHOLTZ };
+enum class PDE { LAPLACE, POISSON, HELMHOLTZ, SCHRODINGER };
 
 inline std::string pde_name(PDE p) {
     switch (p) {
         case PDE::LAPLACE:   return "Laplace";
         case PDE::POISSON:   return "Poisson";
-        case PDE::HELMHOLTZ: return "Helmholtz";
+        case PDE::HELMHOLTZ:   return "Helmholtz";
+        case PDE::SCHRODINGER: return "Schrodinger";
     }
     return "Unknown";
 }
@@ -63,8 +64,9 @@ namespace Config {
     constexpr int    N_DOMAIN       = 400;   // más puntos de colocación interiores
     constexpr int    N_BOUNDARY     = 80;    // mejor representación de ∂Ω
     constexpr double ERC_SIGMA      = 0.20;  // mayor exploración de constantes
-    constexpr int    MAX_TREE_DEPTH = 5;     // expresiones más complejas
+    constexpr int    MAX_TREE_DEPTH = 7;    // expresiones más complejas
     constexpr int    CODON_LENGTH   = 64;    // genotipos BNF más largos
-    constexpr double CROSSOVER_PROB = 0.85;
-    constexpr double MUTATION_PROB  = 0.15;
+    constexpr double CROSSOVER_PROB  = 0.85;
+    constexpr double MUTATION_PROB   = 0.15;
+    constexpr double ALPHA_WEIGHT    = 0.15; // Peso para Dominio (Beta = 1 - Alpha para BC)
 }

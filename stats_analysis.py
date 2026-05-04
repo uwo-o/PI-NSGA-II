@@ -40,7 +40,7 @@ COLORS = {
     "Koza":       "#E07535",
     "PI-NSGA-II": "#2E86C1",
 }
-PDE_ORDER   = ["Laplace", "Poisson", "Helmholtz"]
+PDE_ORDER   = ["Laplace", "Poisson", "Helmholtz", "Schrodinger"]
 METHOD_LIST = ["Koza", "PI-NSGA-II"]
 
 # ─── Carga de datos ───────────────────────────────────────────────────────────
@@ -130,7 +130,7 @@ def build_stats_table(df: pd.DataFrame) -> pd.DataFrame:
 
 # ─── Box plots — Hipervolumen ─────────────────────────────────────────────────
 def plot_boxplot_hv(df: pd.DataFrame, outpath: str):
-    fig, axes = plt.subplots(1, 3, figsize=(14, 5), sharey=False)
+    fig, axes = plt.subplots(1, len(PDE_ORDER), figsize=(4 * len(PDE_ORDER), 5), sharey=False)
     fig.suptitle(
         "Hypervolume by Method and PDE Equation\n"
         "(N independent runs — higher is better)",
@@ -166,7 +166,7 @@ def plot_boxplot_hv(df: pd.DataFrame, outpath: str):
         p_str = f"p={p:.3f}" if p is not None else ""
         ax.set_title(f"{pde}  ({p_str})", fontweight="bold")
         ax.set_xticks([1, 2])
-        ax.set_xticklabels(METHOD_LIST)
+        ax.set_xticklabels(METHOD_LIST, rotation=25)
         ax.set_ylabel("Hypervolume")
         ax.grid(True, axis="y", ls="--", alpha=0.4)
         ax.spines[["top", "right"]].set_visible(False)
@@ -181,7 +181,7 @@ def plot_boxplot_hv(df: pd.DataFrame, outpath: str):
 
 # ─── Box plots — MSE dominio y frontera ───────────────────────────────────────
 def plot_boxplot_mse(df: pd.DataFrame, outpath: str):
-    fig, axes = plt.subplots(2, 3, figsize=(14, 9))
+    fig, axes = plt.subplots(2, len(PDE_ORDER), figsize=(4 * len(PDE_ORDER), 9))
     fig.suptitle(
         "MSE Distribution by Method and PDE Equation\n"
         "Top: Domain MSE (PDE residual)  |  Bottom: Boundary MSE (BC condition)",
@@ -221,7 +221,7 @@ def plot_boxplot_mse(df: pd.DataFrame, outpath: str):
                          if r is not None else f"{pde} — {label}",
                          fontsize=9, fontweight="bold")
             ax.set_xticks([1, 2])
-            ax.set_xticklabels(METHOD_LIST)
+            ax.set_xticklabels(METHOD_LIST, rotation=25)
             ax.set_yscale("symlog", linthresh=1e-3)
             ax.set_ylabel(label)
             ax.grid(True, axis="y", ls="--", alpha=0.4)
@@ -240,7 +240,7 @@ def print_and_save_summary(tbl: pd.DataFrame, outpath: str):
     lines = []
     lines.append("=" * 80)
     lines.append("  ANÁLISIS ESTADÍSTICO: PI-NSGA-II vs Koza (BNF)")
-    lines.append("  Ecuaciones: Laplace / Poisson / Helmholtz  —  Ω = [0,1]²")
+    lines.append("  Ecuaciones: Laplace / Poisson / Helmholtz / Schrodinger  —  Ω = [0,1]²")
     lines.append("=" * 80)
     lines.append("")
 

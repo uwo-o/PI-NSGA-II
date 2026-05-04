@@ -3,7 +3,7 @@ set -e
 cd /home/uwo/Projects/PI-NSGA-II
 
 echo "Step 1: Generating stats runs (10 runs)"
-./build/pi_nsga2 --runs 10
+./build/pi_nsga2 --runs 20
 
 echo "Step 2: Stats Analysis"
 python3 stats_analysis.py

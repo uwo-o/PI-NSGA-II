@@ -19,7 +19,7 @@ matplotlib.rcParams.update({
 })
 
 RESULTS_DIR = "results"
-PDE_ORDER = ["Laplace", "Poisson", "Helmholtz"]
+PDE_ORDER = ["Laplace", "Poisson", "Helmholtz", "Schrodinger"]
 
 def plot_solution_3d(pde):
     path_koza = os.path.join(RESULTS_DIR, f"grid_{pde}_Koza.csv")
@@ -47,8 +47,8 @@ def plot_solution_3d(pde):
     err_koza = np.abs(Z_exact - Z_koza)
     err_pi   = np.abs(Z_exact - Z_pi)
 
-    fig = plt.figure(figsize=(15, 6))
-    fig.suptitle(f"{pde}'s Equation — Symbolic Solution Surfaces", fontsize=14, fontweight="bold")
+    fig = plt.figure(figsize=(22, 5))
+    fig.suptitle(f"{pde}'s Equation — Symbolic Solution Surfaces", fontsize=14, fontweight="bold", y=0.95)
 
     # kwargs para el plot
     surf_kwargs = dict(cmap="viridis", edgecolor="none", alpha=0.9, antialiased=True)
@@ -85,10 +85,12 @@ def plot_solution_3d(pde):
         ax.set_ylabel("y")
         ax.set_zlabel("u" if ax in [ax1,ax2,ax3] else "|u - u*|")
         ax.view_init(elev=25, azim=-45)
+        ax.dist = 11  # Alejar un poco la cámara dentro de cada subplot
 
-    fig.tight_layout()
+    # Ajustar espacio manual para evitar solapamiento de ejes Z
+    fig.subplots_adjust(left=0.05, right=0.95, wspace=0.35)
     outpath = os.path.join(RESULTS_DIR, f"solution_3d_{pde}.png")
-    fig.savefig(outpath, dpi=200, bbox_inches="tight")
+    fig.savefig(outpath, dpi=220, bbox_inches="tight")
     print(f"  Saved: {outpath}")
     plt.close(fig)
 

@@ -27,7 +27,7 @@ matplotlib.rcParams.update({
 warnings.filterwarnings("ignore")
 
 RESULTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "results")
-PDE_ORDER   = ["Laplace", "Poisson", "Helmholtz"]
+PDE_ORDER   = ["Laplace", "Poisson", "Helmholtz", "Schrodinger"]
 
 STYLE = {
     "Koza":       dict(color="#E07535", marker="s", zorder=3, lw=1.8),
@@ -113,7 +113,8 @@ def annotate_zeros(ax, m_df, x_col, y_col, color, side="left"):
 
 # ─── Figure 1: Pareto fronts (one panel per PDE) ─────────────────────────────
 def plot_pareto_fronts(df):
-    fig, axes = plt.subplots(1, 3, figsize=(14, 4.5))
+    n_pdes = len(PDE_ORDER)
+    fig, axes = plt.subplots(1, n_pdes, figsize=(4.5 * n_pdes, 4.5))
     fig.suptitle(
         "Pareto Fronts — PI-NSGA-II vs Koza (BNF)\n"
         "Trade-off: PDE Residual (MSE Domain) vs Boundary Condition Error (MSE BC)",
@@ -180,12 +181,12 @@ def plot_pareto_fronts(df):
 # ─── Figure 2: Single-objective sensitivity ───────────────────────────────────
 def plot_sensitivity(df):
     """
-    Two columns × three rows:
+    Two columns × N rows:
       Left  (col 0): Fix BC budget τ, minimize Domain MSE  → x=τ, y=best domain
       Right (col 1): Fix Domain budget τ, minimize BC MSE  → x=τ, y=best BC
-    Usa symlog para manejar valores = 0.
     """
-    fig, axes = plt.subplots(3, 2, figsize=(12, 10))
+    n_pdes = len(PDE_ORDER)
+    fig, axes = plt.subplots(n_pdes, 2, figsize=(12, 3.5 * n_pdes), squeeze=False)
     fig.suptitle(
         "Pareto Sensitivity Analysis\n"
         "Left: Minimize Domain MSE (BC budget fixed)  |  "
@@ -261,7 +262,8 @@ def plot_summary_bars():
         "Best BC MSE":       ("best_mse_boundary", "Best MSE BC ↓"),
         "Runtime (s)":       ("runtime_s", "Runtime (s) ↓"),
     }
-    fig, axes = plt.subplots(1, 3, figsize=(13, 4))
+    n_pdes = len(PDE_ORDER)
+    fig, axes = plt.subplots(1, 3, figsize=(4.5 * n_pdes, 4.5))
     fig.suptitle("Method Comparison Summary — All Equations",
                  fontsize=12, fontweight="bold")
 
@@ -288,7 +290,7 @@ def plot_summary_bars():
                             f"{v:.2g}", ha="center", va="bottom", fontsize=7, color="#333333")
             ax.set_title(metric_name, fontweight="bold")
             ax.set_xticks(x)
-            ax.set_xticklabels(PDE_ORDER)
+            ax.set_xticklabels(PDE_ORDER, rotation=45, ha="right")
             ax.set_yscale("log")
             ax.set_ylim(bottom=1e-4)
             ax.set_ylabel(metric_name)
@@ -337,7 +339,9 @@ def plot_dominance_scatter(df):
     'goodness' (inverse of Chebyshev distance to ideal point).
     Usa symlog para manejar valores = 0.
     """
-    fig, axes = plt.subplots(1, 3, figsize=(14, 4.5))
+    n_pdes = len(PDE_ORDER)
+    fig, axes = plt.subplots(1, n_pdes, figsize=(4.5 * n_pdes, 4.5))
+    if n_pdes == 1: axes = [axes]
     fig.suptitle(
         "Dominance Map — Solution Coverage in Objective Space\n"
         "(Closer to origin → better in both objectives simultaneously)",
@@ -408,6 +412,9 @@ def print_analysis(df_summary):
 
     for pde in PDE_ORDER:
         sub = df_summary[df_summary["pde"] == pde]
+        if sub.empty or (sub["method"] == "Koza").sum() == 0 or (sub["method"] == "PI-NSGA-II").sum() == 0:
+            continue
+            
         k = sub[sub["method"] == "Koza"].iloc[0]
         p = sub[sub["method"] == "PI-NSGA-II"].iloc[0]
 

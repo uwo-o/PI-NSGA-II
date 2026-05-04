@@ -128,7 +128,16 @@ void validate_exact(const PDEProblem& prob) {
         auto fn = [&](double x, double y){ return prob.exact(x, y); };
         double lap = (fn(p.x+h,p.y) - 2*fn(p.x,p.y) + fn(p.x-h,p.y))/(h*h)
                    + (fn(p.x,p.y+h) - 2*fn(p.x,p.y) + fn(p.x,p.y-h))/(h*h);
-        double res = lap + prob.k2 * u - prob.source(p.x, p.y);
+        
+        double res;
+        if (prob.type == PDE::SCHRODINGER) {
+            double r2 = (p.x - 0.5) * (p.x - 0.5) + (p.y - 0.5) * (p.y - 0.5);
+            double V = 4.0 * r2;
+            double E = 4.0;
+            res = lap + (E - V) * u;
+        } else {
+            res = lap + prob.k2 * u - prob.source(p.x, p.y);
+        }
         mse += res * res;
     }
     mse /= (double)dom.size();
@@ -230,7 +239,8 @@ std::vector<Stats> run_once(int run_id,
     std::vector<PDEProblem> problems = {
         make_laplace(),
         make_poisson(),
-        make_helmholtz(1.0)
+        make_helmholtz(1.0),
+        make_schrodinger()
     };
 
     std::vector<Stats> all_stats;
@@ -309,7 +319,7 @@ int main(int argc, char* argv[]) {
     // Validar soluciones exactas (solo 1 vez)
     if (n_runs == 1) {
         std::cout << "--- Validacion de soluciones exactas ---\n";
-        for (auto& p : {make_laplace(), make_poisson(), make_helmholtz(1.0)})
+        for (auto& p : {make_laplace(), make_poisson(), make_helmholtz(1.0), make_schrodinger()})
             validate_exact(p);
         std::cout << "\n";
     }
