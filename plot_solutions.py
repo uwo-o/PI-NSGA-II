@@ -22,29 +22,29 @@ RESULTS_DIR = "results"
 PDE_ORDER = ["Laplace", "Poisson", "Helmholtz", "Schrodinger"]
 
 def plot_solution_3d(pde):
-    path_koza = os.path.join(RESULTS_DIR, f"grid_{pde}_Koza.csv")
+    path_tsoulos = os.path.join(RESULTS_DIR, f"grid_{pde}_Tsoulos.csv")
     path_pi   = os.path.join(RESULTS_DIR, f"grid_{pde}_PI-NSGA-II.csv")
 
-    if not os.path.exists(path_koza) or not os.path.exists(path_pi):
+    if not os.path.exists(path_tsoulos) or not os.path.exists(path_pi):
         print(f"[SKIP] No data for {pde}. Ensure verbose=True (or --runs 1) was used in pi_nsga2.")
         return
 
-    df_koza = pd.read_csv(path_koza)
+    df_tsoulos = pd.read_csv(path_tsoulos)
     df_pi   = pd.read_csv(path_pi)
 
     # Convertir a mallas 2D
     # Asumimos que x, y son un grid regular
-    N = int(np.sqrt(len(df_koza)))
+    N = int(np.sqrt(len(df_tsoulos)))
     
     # Extraer X, Y y reshape
-    X = df_koza["x"].values.reshape(N, N)
-    Y = df_koza["y"].values.reshape(N, N)
-    Z_exact = df_koza["u_exact"].values.reshape(N, N)
+    X = df_tsoulos["x"].values.reshape(N, N)
+    Y = df_tsoulos["y"].values.reshape(N, N)
+    Z_exact = df_tsoulos["u_exact"].values.reshape(N, N)
     
-    Z_koza = df_koza["u_approx"].values.reshape(N, N)
+    Z_tsoulos = df_tsoulos["u_approx"].values.reshape(N, N)
     Z_pi   = df_pi["u_approx"].values.reshape(N, N)
 
-    err_koza = np.abs(Z_exact - Z_koza)
+    err_tsoulos = np.abs(Z_exact - Z_tsoulos)
     err_pi   = np.abs(Z_exact - Z_pi)
 
     fig = plt.figure(figsize=(22, 5))
@@ -59,20 +59,20 @@ def plot_solution_3d(pde):
     ax1.plot_surface(X, Y, Z_exact, **surf_kwargs)
     ax1.set_title("Exact Solution ($u^*$)")
     
-    # 2. Koza
+    # 2. Tsoulos
     ax2 = fig.add_subplot(1, 5, 2, projection="3d")
-    ax2.plot_surface(X, Y, Z_koza, **surf_kwargs)
-    ax2.set_title("Koza (BNF)")
+    ax2.plot_surface(X, Y, Z_tsoulos, **surf_kwargs)
+    ax2.set_title("Tsoulos (GE)")
 
     # 3. PI-NSGA-II
     ax3 = fig.add_subplot(1, 5, 3, projection="3d")
     ax3.plot_surface(X, Y, Z_pi, **surf_kwargs)
     ax3.set_title("PI-NSGA-II")
 
-    # 4. Error Koza
+    # 4. Error Tsoulos
     ax4 = fig.add_subplot(1, 5, 4, projection="3d")
-    surf4 = ax4.plot_surface(X, Y, err_koza, **err_kwargs)
-    ax4.set_title(f"Error Koza\n(max: {err_koza.max():.2e})")
+    surf4 = ax4.plot_surface(X, Y, err_tsoulos, **err_kwargs)
+    ax4.set_title(f"Error Tsoulos\n(max: {err_tsoulos.max():.2e})")
 
     # 5. Error PI
     ax5 = fig.add_subplot(1, 5, 5, projection="3d")
@@ -103,7 +103,7 @@ def compile_expressions():
 
         for pde in PDE_ORDER:
             fout.write(f"--- {pde.upper()} ---\n")
-            for method in ["Koza", "PI-NSGA-II"]:
+            for method in ["Tsoulos", "PI-NSGA-II"]:
                 f_path = os.path.join(RESULTS_DIR, f"expr_{pde}_{method}.tex")
                 if os.path.exists(f_path):
                     with open(f_path, "r") as fin:

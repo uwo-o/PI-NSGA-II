@@ -2,18 +2,18 @@
 // koza_bnf.cpp  —  Método Koza con gramática BNF y diferencias finitas
 // =============================================================================
 
-#include "koza_bnf.hpp"
+#include "tsoulos_ge.hpp"
 #include "nsga2.hpp"
 #include <iostream>
 #include <algorithm>
 #include <numeric>
 
 // ─── Gramática BNF ────────────────────────────────────────────────────────────
-//  <expr>  ::= <expr> <op> <expr>  | <unary>(<expr>) | <var> | <erc>
-//  <op>    ::= + | - | *
+//  <expr>  ::= <expr> <op> <expr>  | <unary>(<expr>) | <var> | <digit>
+//  <op>    ::= + | - | * | /
 //  <unary> ::= sin | cos | sinh | cosh | tanh | exp | sqrt | log | atan
 //  <var>   ::= x | y
-//  <erc>   ::= constante flotante en [-5, 5]
+//  <digit> ::= 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9
 // Se usa "wrapping" circular cuando se agotan los codones.
 NodePtr bnf_to_tree(const std::vector<int>& codons,
                     int& idx, int depth, int max_depth)
@@ -40,9 +40,8 @@ NodePtr bnf_to_tree(const std::vector<int>& codons,
         int c = next_codon();
         if (c % 3 == 0) return make_var('x');
         if (c % 3 == 1) return make_var('y');
-        // ERC flotante en [-5, 5] con resolución 0.25
-        double val = (double)((next_codon() % 41) - 20) * 0.25;
-        return make_erc(val);
+        // <digit> en [0, 9]
+        return make_erc((double)(next_codon() % 10));
     }
 
     int rule = next_codon() % 4;
@@ -50,11 +49,12 @@ NodePtr bnf_to_tree(const std::vector<int>& codons,
     if (rule == 0) {
         // <expr> <op> <expr>
         NodePtr L = bnf_to_tree(codons, idx, depth + 1, max_depth);
-        int op_code = next_codon() % 3;
+        int op_code = next_codon() % 4;
         NodePtr R = bnf_to_tree(codons, idx, depth + 1, max_depth);
         NodeType op = (op_code == 0) ? NodeType::ADD
                     : (op_code == 1) ? NodeType::SUB
-                    :                  NodeType::MUL;
+                    : (op_code == 2) ? NodeType::MUL
+                    :                  NodeType::DIV;
         return make_binary(op, std::move(L), std::move(R));
     }
     else if (rule == 1) {
@@ -68,20 +68,19 @@ NodePtr bnf_to_tree(const std::vector<int>& codons,
         return (next_codon() % 2 == 0) ? make_var('x') : make_var('y');
     }
     else {
-        // <erc> — constante flotante en [-5, 5]
-        double val = (double)((next_codon() % 41) - 20) * 0.25;
-        return make_erc(val);
+        // <digit> — constante en [0, 9]
+        return make_erc((double)(next_codon() % 10));
     }
 }
 
-// ─── KozaIndividual::decode ───────────────────────────────────────────────────
-void KozaIndividual::decode() {
+// ─── TsoulosIndividual::decode ───────────────────────────────────────────────────
+void TsoulosIndividual::decode() {
     int idx = 0;
     tree = bnf_to_tree(codons, idx, 0, Config::MAX_TREE_DEPTH);
 }
 
-// ─── KozaIndividual::evaluate ─────────────────────────────────────────────────
-void KozaIndividual::evaluate(const PDEProblem& prob,
+// ─── TsoulosIndividual::evaluate ─────────────────────────────────────────────────
+void TsoulosIndividual::evaluate(const PDEProblem& prob,
                               const std::vector<Point>& dom,
                               const std::vector<Point>& bnd)
 {
@@ -130,16 +129,16 @@ void KozaIndividual::evaluate(const PDEProblem& prob,
     mse_boundary = (1.0 - Config::ALPHA_WEIGHT) * (sum_bnd / (double)bnd.size());
 }
 
-// ─── KozaSolver ───────────────────────────────────────────────────────────────
-KozaSolver::KozaSolver(const PDEProblem& prob, unsigned seed)
+// ─── TsoulosSolver ───────────────────────────────────────────────────────────────
+TsoulosSolver::TsoulosSolver(const PDEProblem& prob, unsigned seed)
     : prob_(prob), gen_(seed)
 {
     dom_pts_ = prob_.domain_points(Config::N_DOMAIN);
     bnd_pts_ = prob_.boundary_points(Config::N_BOUNDARY);
 }
 
-KozaIndividual KozaSolver::random_individual() {
-    KozaIndividual ind;
+TsoulosIndividual TsoulosSolver::random_individual() {
+    TsoulosIndividual ind;
     ind.codons.resize(Config::CODON_LENGTH);
     std::uniform_int_distribution<int> d(0, 255);
     for (auto& c : ind.codons) c = d(gen_);
@@ -148,8 +147,8 @@ KozaIndividual KozaSolver::random_individual() {
     return ind;
 }
 
-KozaIndividual KozaSolver::crossover(const KozaIndividual& a, const KozaIndividual& b) {
-    KozaIndividual child;
+TsoulosIndividual TsoulosSolver::crossover(const TsoulosIndividual& a, const TsoulosIndividual& b) {
+    TsoulosIndividual child;
     child.codons.resize(Config::CODON_LENGTH);
     // Cruce en un punto (codon-level)
     std::uniform_int_distribution<int> cut(1, Config::CODON_LENGTH - 1);
@@ -160,7 +159,7 @@ KozaIndividual KozaSolver::crossover(const KozaIndividual& a, const KozaIndividu
     return child;
 }
 
-void KozaSolver::mutate(KozaIndividual& ind) {
+void TsoulosSolver::mutate(TsoulosIndividual& ind) {
     std::uniform_int_distribution<int> pos(0, Config::CODON_LENGTH - 1);
     std::uniform_int_distribution<int> val(0, 255);
     // Mutar ~10% de los codones
@@ -170,7 +169,7 @@ void KozaSolver::mutate(KozaIndividual& ind) {
     ind.decode();
 }
 
-std::vector<KozaIndividual> KozaSolver::run(int pop_size, int max_gen) {
+std::vector<TsoulosIndividual> TsoulosSolver::run(int pop_size, int max_gen) {
     // Inicialización
     population_.clear();
     population_.reserve(pop_size);
@@ -180,14 +179,14 @@ std::vector<KozaIndividual> KozaSolver::run(int pop_size, int max_gen) {
     // Bucle generacional NSGA-II
     for (int gen = 0; gen < max_gen; ++gen) {
         // Generar hijos
-        std::vector<KozaIndividual> offspring;
+        std::vector<TsoulosIndividual> offspring;
         offspring.reserve(pop_size);
         std::uniform_real_distribution<double> prob(0.0, 1.0);
 
         while ((int)offspring.size() < pop_size) {
             int p1 = tournament_select(population_, gen_);
             int p2 = tournament_select(population_, gen_);
-            KozaIndividual child;
+            TsoulosIndividual child;
             if (prob(gen_) < Config::CROSSOVER_PROB)
                 child = crossover(population_[p1], population_[p2]);
             else
@@ -199,7 +198,7 @@ std::vector<KozaIndividual> KozaSolver::run(int pop_size, int max_gen) {
         }
 
         // Combinar y seleccionar
-        std::vector<KozaIndividual> combined;
+        std::vector<TsoulosIndividual> combined;
         combined.reserve(pop_size * 2);
         for (auto& x : population_) combined.push_back(std::move(x)); // unique_ptr must move!
         for (auto& x : offspring)   combined.push_back(std::move(x));
@@ -208,7 +207,7 @@ std::vector<KozaIndividual> KozaSolver::run(int pop_size, int max_gen) {
         // Progreso (cada 25 generaciones)
         if (gen % 25 == 0) {
             auto& best = population_.front();
-            std::cout << "  [Koza/" << prob_.name() << "] gen=" << gen
+            std::cout << "  [Tsoulos/" << prob_.name() << "] gen=" << gen
                       << "  dom=" << best.mse_domain
                       << "  bnd=" << best.mse_boundary << "\n";
         }
@@ -216,8 +215,8 @@ std::vector<KozaIndividual> KozaSolver::run(int pop_size, int max_gen) {
     return population_;
 }
 
-std::vector<KozaIndividual> KozaSolver::pareto_front() const {
-    std::vector<KozaIndividual> front;
+std::vector<TsoulosIndividual> TsoulosSolver::pareto_front() const {
+    std::vector<TsoulosIndividual> front;
     for (auto& ind : population_)
         if (ind.rank == 1) front.push_back(ind);
     return front;

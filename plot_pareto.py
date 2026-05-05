@@ -28,9 +28,10 @@ warnings.filterwarnings("ignore")
 
 RESULTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "results")
 PDE_ORDER   = ["Laplace", "Poisson", "Helmholtz", "Schrodinger"]
+METHOD_LIST = ["Tsoulos", "PI-NSGA-II"]
 
 STYLE = {
-    "Koza":       dict(color="#E07535", marker="s", zorder=3, lw=1.8),
+    "Tsoulos":    dict(color="#E07535", marker="s", zorder=3, lw=1.8),
     "PI-NSGA-II": dict(color="#2E86C1", marker="o", zorder=4, lw=1.8),
 }
 
@@ -116,7 +117,7 @@ def plot_pareto_fronts(df):
     n_pdes = len(PDE_ORDER)
     fig, axes = plt.subplots(1, n_pdes, figsize=(4.5 * n_pdes, 4.5))
     fig.suptitle(
-        "Pareto Fronts — PI-NSGA-II vs Koza (BNF)\n"
+        "Pareto Fronts — PI-NSGA-II vs Tsoulos (GE)\n"
         "Trade-off: PDE Residual (MSE Domain) vs Boundary Condition Error (MSE BC)",
         fontsize=12, fontweight="bold", y=1.02
     )
@@ -273,7 +274,7 @@ def plot_summary_bars():
     if os.path.exists(stats_path):
         df = pd.read_csv(stats_path)
         for ax, (metric_name, (comp_col, stats_col)) in zip(axes, metrics.items()):
-            for i, method in enumerate(["Koza", "PI-NSGA-II"]):
+            for i, method in enumerate(METHOD_LIST):
                 vals = []
                 for pde in PDE_ORDER:
                     sub = df[(df["PDE"] == pde) & (df["Metric"] == stats_col)]
@@ -300,7 +301,7 @@ def plot_summary_bars():
     elif os.path.exists(comp_path):
         df = pd.read_csv(comp_path)
         for ax, (metric_name, (comp_col, stats_col)) in zip(axes, metrics.items()):
-            for i, method in enumerate(["Koza", "PI-NSGA-II"]):
+            for i, method in enumerate(METHOD_LIST):
                 vals = [
                     max(df[(df["method"] == method) & (df["pde"] == pde)][comp_col].values[0], 1e-3)
                     if len(df[(df["method"] == method) & (df["pde"] == pde)]) > 0 else 1e-3
@@ -402,53 +403,53 @@ def plot_dominance_scatter(df):
 # ─── Print analysis ───────────────────────────────────────────────────────────
 def print_analysis(df_summary):
     print("\n" + "="*70)
-    print("  BENCHMARK ANALYSIS: PI-NSGA-II vs Koza (BNF)")
+    print("  BENCHMARK ANALYSIS: PI-NSGA-II vs Tsoulos (GE)")
     print("  Laplace / Poisson / Helmholtz  —  Domain Ω = [0,1]²")
     print("="*70)
 
-    winners = {"PI-NSGA-II": 0, "Koza": 0}
-    print(f"\n{'Equation':<12} {'Metric':<22} {'Koza':>12} {'PI-NSGA-II':>12} {'Winner':>12}")
+    winners = {"PI-NSGA-II": 0, "Tsoulos": 0}
+    print(f"\n{'Equation':<12} {'Metric':<22} {'Tsoulos':>12} {'PI-NSGA-II':>12} {'Winner':>12}")
     print("-"*70)
 
     for pde in PDE_ORDER:
         sub = df_summary[df_summary["pde"] == pde]
-        if sub.empty or (sub["method"] == "Koza").sum() == 0 or (sub["method"] == "PI-NSGA-II").sum() == 0:
+        if sub.empty or (sub["method"] == "Tsoulos").sum() == 0 or (sub["method"] == "PI-NSGA-II").sum() == 0:
             continue
             
-        k = sub[sub["method"] == "Koza"].iloc[0]
+        k = sub[sub["method"] == "Tsoulos"].iloc[0]
         p = sub[sub["method"] == "PI-NSGA-II"].iloc[0]
 
         # Domain MSE
-        w = "Koza" if k.best_mse_domain < p.best_mse_domain else "PI-NSGA-II"
+        w = "Tsoulos" if k.best_mse_domain < p.best_mse_domain else "PI-NSGA-II"
         if k.best_mse_domain != p.best_mse_domain: winners[w] += 1
         print(f"{pde:<12} {'Best Domain MSE':<22} {k.best_mse_domain:>12.4f} {p.best_mse_domain:>12.4f} {w:>12}")
 
         # BC MSE
-        w = "Koza" if k.best_mse_boundary < p.best_mse_boundary else "PI-NSGA-II"
+        w = "Tsoulos" if k.best_mse_boundary < p.best_mse_boundary else "PI-NSGA-II"
         if k.best_mse_boundary != p.best_mse_boundary: winners[w] += 1
         print(f"{'':12} {'Best BC MSE':<22} {k.best_mse_boundary:>12.6f} {p.best_mse_boundary:>12.6f} {w:>12}")
 
         # Runtime
-        w = "PI-NSGA-II" if p.runtime_s < k.runtime_s else "Koza"
+        w = "PI-NSGA-II" if p.runtime_s < k.runtime_s else "Tsoulos"
         winners[w] += 1
         speedup = k.runtime_s / p.runtime_s
         print(f"{'':12} {'Runtime (s)':<22} {k.runtime_s:>12.3f} {p.runtime_s:>12.3f}  PI {speedup:.1f}x faster")
         print()
 
     print("="*70)
-    print(f"  Overall score  →  Koza: {winners['Koza']}   PI-NSGA-II: {winners['PI-NSGA-II']}")
-    pi_speedup = df_summary[df_summary["method"]=="Koza"]["runtime_s"].mean() / \
+    print(f"  Overall score  →  Tsoulos: {winners['Tsoulos']}   PI-NSGA-II: {winners['PI-NSGA-II']}")
+    pi_speedup = df_summary[df_summary["method"]=="Tsoulos"]["runtime_s"].mean() / \
                  df_summary[df_summary["method"]=="PI-NSGA-II"]["runtime_s"].mean()
-    print(f"  Average speedup of PI-NSGA-II: {pi_speedup:.1f}x faster than Koza")
+    print(f"  Average speedup of PI-NSGA-II: {pi_speedup:.1f}x faster than Tsoulos")
     print("""
   Key Observations:
   ─────────────────
   1. Speed: PI-NSGA-II is consistently 3-5× faster because it uses exact
-     symbolic AD (1 pass per point) vs Koza's finite differences (5 evaluations
+     symbolic AD (1 pass per point) vs Tsoulos's finite differences (5 evaluations
      per point for the Laplacian).
 
-  2. Laplace: Koza achieves better BC satisfaction (0.0027 vs 0.049).
-     Koza's integer ERC constants {1..9} happen to fit the Laplace BC well,
+  2. Laplace: Tsoulos achieves better BC satisfaction (0.0027 vs 0.049).
+     Tsoulos's integer ERC constants {1..9} happen to fit the Laplace BC well,
      while PI's float ERCs are still exploring.
 
   3. Poisson & Helmholtz: PI-NSGA-II achieves lower domain residuals, 

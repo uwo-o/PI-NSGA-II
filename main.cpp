@@ -1,5 +1,5 @@
 // =============================================================================
-// main.cpp  —  Orquestador: PI-NSGA-II vs Koza-BNF
+// main.cpp  —  Orquestador: PI-NSGA-II vs Tsoulos (GE)
 //   Modos:
 //     ./build/pi_nsga2              → 1 corrida (comportamiento estándar)
 //     ./build/pi_nsga2 --runs N     → N corridas independientes (análisis estadístico)
@@ -21,7 +21,7 @@
 
 #include "common.hpp"
 #include "pde_problems.hpp"
-#include "koza_bnf.hpp"
+#include "tsoulos_ge.hpp"
 #include "pi_solver.hpp"
 
 namespace fs = std::filesystem;
@@ -216,7 +216,7 @@ void print_table(const std::string& lbl, const Stats& k, const Stats& p) {
     std::cout << "| Metodo           | MSE Dom.    | MSE Bnd.    | Pareto   | Hipervolumen| Tiempo   |\n";
     std::cout << "+------------------+-------------+-------------+----------+-------------+----------+\n";
     std::cout << std::fixed << std::setprecision(4);
-    std::cout << "| Koza (BNF)       | " << std::setw(11) << k.best_domain
+    std::cout << "| Tsoulos (GE)     | " << std::setw(11) << k.best_domain
               << " | " << std::setw(11) << k.best_bnd
               << " | " << std::setw(8)  << k.front_size
               << " | " << std::setw(11) << k.hypervolume
@@ -253,21 +253,21 @@ std::vector<Stats> run_once(int run_id,
             std::cout << "=====================================================\n";
         }
 
-        // ── Koza ─────────────────────────────────────────────────────────────
-        if (verbose) std::cout << "\n[1/2] Koza (BNF + Diferencias Finitas)\n";
+        // ── Tsoulos ─────────────────────────────────────────────────────────────
+        if (verbose) std::cout << "\n[1/2] Tsoulos (GE)\n";
         auto t0 = std::chrono::steady_clock::now();
-        KozaSolver koza(prob, seed_base);
-        auto koza_pop = koza.run(Config::POP_SIZE, Config::MAX_GEN);
-        double koza_rt = std::chrono::duration<double>(
+        TsoulosSolver tsoulos(prob, seed_base);
+        auto tsoulos_pop = tsoulos.run(Config::POP_SIZE, Config::MAX_GEN);
+        double tsoulos_rt = std::chrono::duration<double>(
             std::chrono::steady_clock::now() - t0).count();
-        save_pareto_csv(koza_pop, out_dir + "/" + lbl + "_koza_pareto.csv",
-                        "Koza", lbl);
-        Stats ks = compute_stats(koza_pop, "Koza", lbl, koza_rt);
+        save_pareto_csv(tsoulos_pop, out_dir + "/" + lbl + "_tsoulos_pareto.csv",
+                        "Tsoulos", lbl);
+        Stats ts = compute_stats(tsoulos_pop, "Tsoulos", lbl, tsoulos_rt);
         if (verbose) {
-            const auto* best_koza = get_best_individual(koza_pop);
-            save_solution_grid(best_koza, prob,
-                               out_dir + "/grid_" + lbl + "_Koza.csv",
-                               out_dir + "/expr_" + lbl + "_Koza.tex");
+            const auto* best_tsoulos = get_best_individual(tsoulos_pop);
+            save_solution_grid(best_tsoulos, prob,
+                               out_dir + "/grid_" + lbl + "_Tsoulos.csv",
+                               out_dir + "/expr_" + lbl + "_Tsoulos.tex");
         }
 
         // ── PI-NSGA-II ────────────────────────────────────────────────────────
@@ -287,8 +287,8 @@ std::vector<Stats> run_once(int run_id,
                                out_dir + "/expr_" + lbl + "_PI-NSGA-II.tex");
         }
 
-        if (verbose) print_table(lbl, ks, ps);
-        all_stats.push_back(ks);
+        if (verbose) print_table(lbl, ts, ps);
+        all_stats.push_back(ts);
         all_stats.push_back(ps);
     }
     return all_stats;
@@ -304,7 +304,7 @@ int main(int argc, char* argv[]) {
     }
 
     std::cout << "=============================================================\n";
-    std::cout << "  PI-NSGA-II vs Koza BNF --- Benchmark de Ecuaciones PDE\n";
+    std::cout << "  PI-NSGA-II vs Tsoulos --- Benchmark de Ecuaciones PDE\n";
     std::cout << "  Laplace | Poisson | Helmholtz  en  Omega = [0,1]^2\n";
     std::cout << "  Pop=" << Config::POP_SIZE
               << "  Gen=" << Config::MAX_GEN

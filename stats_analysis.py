@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-stats_analysis.py — Análisis estadístico completo: PI-NSGA-II vs Koza (BNF)
+stats_analysis.py — Análisis estadístico completo: PI-NSGA-II vs Tsoulos (GE)
   Lee all_runs_summary.csv generado por ./build/pi_nsga2 --runs N
   Genera:
     results/stats_table.csv              — media ± std, p-valor Wilcoxon, tamaño de efecto
@@ -37,11 +37,11 @@ warnings.filterwarnings("ignore")
 
 # ─── Paleta de colores ────────────────────────────────────────────────────────
 COLORS = {
-    "Koza":       "#E07535",
+    "Tsoulos":    "#E07535",
     "PI-NSGA-II": "#2E86C1",
 }
 PDE_ORDER   = ["Laplace", "Poisson", "Helmholtz", "Schrodinger"]
-METHOD_LIST = ["Koza", "PI-NSGA-II"]
+METHOD_LIST = ["Tsoulos", "PI-NSGA-II"]
 
 # ─── Carga de datos ───────────────────────────────────────────────────────────
 def load_data(path: str) -> pd.DataFrame:
@@ -108,21 +108,20 @@ def build_stats_table(df: pd.DataFrame) -> pd.DataFrame:
                 row[f"{m}_median"] = np.median(v) if len(v) > 0 else np.nan
 
             # Wilcoxon test entre los dos métodos
-            U, p, r = wilcoxon_test(vals["Koza"], vals["PI-NSGA-II"])
+            U, p, r = wilcoxon_test(vals["Tsoulos"], vals["PI-NSGA-II"])
             row["U_stat"]       = U
             row["p_value"]      = p
             row["effect_r"]     = r
             row["effect_label"] = effect_label(r) if r is not None else "n/a"
 
             # ¿Cuál método es mejor?
-            if metric_key == "hypervolume":
-                # mayor es mejor
-                if row.get("Koza_mean") is not None and row.get("PI-NSGA-II_mean") is not None:
-                    row["winner"] = "Koza" if row["Koza_mean"] > row["PI-NSGA-II_mean"] else "PI-NSGA-II"
-            else:
-                # menor es mejor
-                if row.get("Koza_mean") is not None and row.get("PI-NSGA-II_mean") is not None:
-                    row["winner"] = "Koza" if row["Koza_mean"] < row["PI-NSGA-II_mean"] else "PI-NSGA-II"
+            k_mean = row.get("Tsoulos_mean")
+            pi_mean = row.get("PI-NSGA-II_mean")
+            if k_mean is not None and pi_mean is not None:
+                if metric_key == "hypervolume":
+                    row["winner"] = "Tsoulos" if k_mean > pi_mean else "PI-NSGA-II" if pi_mean > k_mean else "Empate"
+                else:
+                    row["winner"] = "Tsoulos" if k_mean < pi_mean else "PI-NSGA-II" if pi_mean < k_mean else "Empate"
 
             rows.append(row)
 
@@ -139,11 +138,11 @@ def plot_boxplot_hv(df: pd.DataFrame, outpath: str):
 
     for ax, pde in zip(axes, PDE_ORDER):
         sub = df[df["pde"] == pde]
-        data_koza = sub[sub["method"] == "Koza"]["hypervolume"].values
-        data_pi   = sub[sub["method"] == "PI-NSGA-II"]["hypervolume"].values
+        data_tsoulos = sub[sub["method"] == "Tsoulos"]["hypervolume"].values
+        data_pi      = sub[sub["method"] == "PI-NSGA-II"]["hypervolume"].values
 
         bp = ax.boxplot(
-            [data_koza, data_pi],
+            [data_tsoulos, data_pi],
             patch_artist=True,
             widths=0.45,
             medianprops=dict(color="white", linewidth=2),
@@ -156,13 +155,13 @@ def plot_boxplot_hv(df: pd.DataFrame, outpath: str):
             patch.set_alpha(0.8)
 
         # Añadir jitter (puntos individuales)
-        for j, (data, method) in enumerate(zip([data_koza, data_pi], METHOD_LIST), 1):
+        for j, (data, method) in enumerate(zip([data_tsoulos, data_pi], METHOD_LIST), 1):
             jitter = np.random.default_rng(42).uniform(-0.15, 0.15, size=len(data))
             ax.scatter(np.full(len(data), j) + jitter, data,
                        color=COLORS[method], alpha=0.5, s=18, zorder=3)
 
         # p-value en el plot
-        U, p, r = wilcoxon_test(data_koza, data_pi)
+        U, p, r = wilcoxon_test(data_tsoulos, data_pi)
         p_str = f"p={p:.3f}" if p is not None else ""
         ax.set_title(f"{pde}  ({p_str})", fontweight="bold")
         ax.set_xticks([1, 2])
@@ -192,11 +191,11 @@ def plot_boxplot_mse(df: pd.DataFrame, outpath: str):
         sub = df[df["pde"] == pde]
         for row, metric in enumerate(["best_mse_domain", "best_mse_boundary"]):
             ax = axes[row][col]
-            data_koza = sub[sub["method"] == "Koza"][metric].values
-            data_pi   = sub[sub["method"] == "PI-NSGA-II"][metric].values
+            data_tsoulos = sub[sub["method"] == "Tsoulos"][metric].values
+            data_pi      = sub[sub["method"] == "PI-NSGA-II"][metric].values
 
             bp = ax.boxplot(
-                [data_koza, data_pi],
+                [data_tsoulos, data_pi],
                 patch_artist=True,
                 widths=0.45,
                 medianprops=dict(color="white", linewidth=2),
@@ -209,12 +208,12 @@ def plot_boxplot_mse(df: pd.DataFrame, outpath: str):
                 patch.set_alpha(0.8)
 
             # Jitter
-            for j, (data, method) in enumerate(zip([data_koza, data_pi], METHOD_LIST), 1):
+            for j, (data, method) in enumerate(zip([data_tsoulos, data_pi], METHOD_LIST), 1):
                 jitter = np.random.default_rng(42).uniform(-0.15, 0.15, size=len(data))
                 ax.scatter(np.full(len(data), j) + jitter, data,
                            color=COLORS[method], alpha=0.5, s=15, zorder=3)
 
-            U, p, r = wilcoxon_test(data_koza, data_pi)
+            U, p, r = wilcoxon_test(data_tsoulos, data_pi)
             p_str = f"p={p:.3f}" if p is not None else ""
             label = "Domain MSE" if row == 0 else "Boundary MSE"
             ax.set_title(f"{pde} — {label}\n({p_str}, r={r:.2f} [{effect_label(r)}])"
@@ -239,38 +238,38 @@ def print_and_save_summary(tbl: pd.DataFrame, outpath: str):
     n_runs = None
     lines = []
     lines.append("=" * 80)
-    lines.append("  ANÁLISIS ESTADÍSTICO: PI-NSGA-II vs Koza (BNF)")
+    lines.append("  ANÁLISIS ESTADÍSTICO: PI-NSGA-II vs Tsoulos (GE)")
     lines.append("  Ecuaciones: Laplace / Poisson / Helmholtz / Schrodinger  —  Ω = [0,1]²")
     lines.append("=" * 80)
     lines.append("")
 
-    hdr = f"{'PDE':<12} {'Métrica':<22} {'Koza mean±std':>18} {'PI mean±std':>18} {'p-val':>8} {'r':>6} {'Ganador':>12}"
+    hdr = f"{'PDE':<12} {'Métrica':<22} {'Tsoulos mean±std':>18} {'PI mean±std':>18} {'p-val':>8} {'r':>6} {'Ganador':>12}"
     lines.append(hdr)
     lines.append("-" * 80)
 
-    winners = {"Koza": 0, "PI-NSGA-II": 0, "tie": 0}
+    winners = {"Tsoulos": 0, "PI-NSGA-II": 0, "Empate": 0}
     for _, row in tbl.iterrows():
-        km = row.get("Koza_mean", np.nan)
-        ks = row.get("Koza_std",  np.nan)
+        tm = row.get("Tsoulos_mean", np.nan)
+        ts = row.get("Tsoulos_std",  np.nan)
         pm = row.get("PI-NSGA-II_mean", np.nan)
         ps = row.get("PI-NSGA-II_std",  np.nan)
         pv = row.get("p_value", np.nan)
         r  = row.get("effect_r", np.nan)
         w  = row.get("winner", "—")
 
-        km_s = f"{km:.3e}±{ks:.2e}" if not np.isnan(km) else "n/a"
+        tm_s = f"{tm:.3e}±{ts:.2e}" if not np.isnan(tm) else "n/a"
         pm_s = f"{pm:.3e}±{ps:.2e}" if not np.isnan(pm) else "n/a"
         pv_s = f"{pv:.4f}" if pv is not None and not np.isnan(float(pv)) else "n/a"
         r_s  = f"{r:.3f}"  if r is not None and not np.isnan(float(r))  else "n/a"
 
-        line = f"{row['PDE']:<12} {row['Metric']:<22} {km_s:>18} {pm_s:>18} {pv_s:>8} {r_s:>6} {w:>12}"
+        line = f"{row['PDE']:<12} {row['Metric']:<22} {tm_s:>18} {pm_s:>18} {pv_s:>8} {r_s:>6} {w:>12}"
         lines.append(line)
         if w in winners:
             winners[w] += 1
 
     lines.append("")
     lines.append("=" * 80)
-    lines.append(f"  Victorias globales → Koza: {winners['Koza']}   PI-NSGA-II: {winners['PI-NSGA-II']}")
+    lines.append(f"  Victorias globales → Tsoulos: {winners['Tsoulos']}   PI-NSGA-II: {winners['PI-NSGA-II']}")
     lines.append("")
     lines.append("  Interpretación del tamaño de efecto r (Cohen):")
     lines.append("    r < 0.1 negligible | 0.1–0.3 small | 0.3–0.5 medium | >0.5 large")

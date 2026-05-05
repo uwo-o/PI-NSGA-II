@@ -19,7 +19,7 @@ include_directories(${PROJECT_SOURCE_DIR}/include)
 set(SOURCES
     src/tree_node.cpp
     src/pde_problems.cpp
-    src/koza_bnf.cpp
+    src/tsoulos_ge.cpp
     src/pi_solver.cpp
     main.cpp
 )

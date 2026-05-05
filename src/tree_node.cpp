@@ -140,27 +140,51 @@ AD BinaryNode::ad_eval(double x, double y) const {
         r.dx = L.dx*R.v + L.v*R.dx; r.dy = L.dy*R.v + L.v*R.dy;
         r.dxx = L.dxx*R.v + 2.0*L.dx*R.dx + L.v*R.dxx;
         r.dyy = L.dyy*R.v + 2.0*L.dy*R.dy + L.v*R.dyy;
+    } else if (type == NodeType::DIV) {
+        if (std::abs(R.v) < 1e-5) {
+            r.v = 1.0; r.dx = 0; r.dy = 0; r.dxx = 0; r.dyy = 0;
+        } else {
+            double R2 = R.v * R.v;
+            double R3 = R2 * R.v;
+            r.v   = L.v / R.v;
+            r.dx  = (L.dx * R.v - L.v * R.dx) / R2;
+            r.dy  = (L.dy * R.v - L.v * R.dy) / R2;
+            r.dxx = (L.dxx * R.v - L.v * R.dxx) / R2 - 2.0 * R.dx * (L.dx * R.v - L.v * R.dx) / R3;
+            r.dyy = (L.dyy * R.v - L.v * R.dyy) / R2 - 2.0 * R.dy * (L.dy * R.v - L.v * R.dy) / R3;
+        }
     }
     return r;
 }
-double BinaryNode::eval(double x, double y) const { return ad_eval(x, y).v; }
+double BinaryNode::eval(double x, double y) const { 
+    if (type == NodeType::DIV) {
+        double denom = right->eval(x, y);
+        if (std::abs(denom) < 1e-5) return 1.0;
+        return left->eval(x, y) / denom;
+    }
+    return ad_eval(x, y).v; 
+}
 void BinaryNode::print(std::ostream& os) const {
     os << "(";
     left->print(os);
     if (type == NodeType::ADD) os << " + ";
     else if (type == NodeType::SUB) os << " - ";
     else if (type == NodeType::MUL) os << " * ";
+    else if (type == NodeType::DIV) os << " / ";
     right->print(os);
     os << ")";
 }
 void BinaryNode::print_latex(std::ostream& os) const {
-    os << "(";
-    left->print_latex(os);
-    if (type == NodeType::ADD) os << " + ";
-    else if (type == NodeType::SUB) os << " - ";
-    else if (type == NodeType::MUL) os << " \\cdot ";
-    right->print_latex(os);
-    os << ")";
+    if (type == NodeType::DIV) {
+        os << "\\frac{"; left->print_latex(os); os << "}{"; right->print_latex(os); os << "}";
+    } else {
+        os << "(";
+        left->print_latex(os);
+        if (type == NodeType::ADD) os << " + ";
+        else if (type == NodeType::SUB) os << " - ";
+        else if (type == NodeType::MUL) os << " \\cdot ";
+        right->print_latex(os);
+        os << ")";
+    }
 }
 
 // ─── Constructores ───────────────────────────────────────────────────────────
@@ -171,7 +195,7 @@ NodePtr make_unary(NodeType op, NodePtr c) { return std::make_unique<UnaryNode>(
 
 // ─── Generación Aleatoria ────────────────────────────────────────────────────
 NodePtr random_tree(int max_depth, std::mt19937& gen, bool force_terminal) {
-    static const std::vector<NodeType> binaries = { NodeType::ADD, NodeType::SUB, NodeType::MUL };
+    static const std::vector<NodeType> binaries = { NodeType::ADD, NodeType::SUB, NodeType::MUL, NodeType::DIV };
     static const std::vector<NodeType> unaries = {
         NodeType::SIN, NodeType::COS, NodeType::SINH, NodeType::COSH, NodeType::TANH,
         NodeType::EXP, NodeType::SQRT, NodeType::LOG, NodeType::ATAN
