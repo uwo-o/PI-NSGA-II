@@ -8,8 +8,6 @@ import numpy as np
 import pandas as pd
 import matplotlib
 import matplotlib.pyplot as plt
-import matplotlib.patches as mpatches
-from matplotlib.lines import Line2D
 
 matplotlib.use("Agg")
 matplotlib.rcParams.update({
@@ -24,7 +22,9 @@ matplotlib.rcParams.update({
 })
 warnings.filterwarnings("ignore")
 
-RESULTS_DIR = "/home/uwo/Projects/PI-NSGA-II/results"
+# Rutas dinámicas
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+RESULTS_DIR = os.path.join(BASE_DIR, "results")
 PDE_ORDER   = ["Laplace", "Poisson", "Helmholtz", "Schrodinger"]
 DIMS        = [1, 2]
 LOG_EPS     = 1e-10
@@ -37,7 +37,7 @@ STYLE = {
 
 def load_all():
     files = glob.glob(os.path.join(RESULTS_DIR, "**", "*_pareto.csv"), recursive=True)
-    if not files: raise FileNotFoundError("No CSV files found.")
+    if not files: raise FileNotFoundError(f"No CSV files found in {RESULTS_DIR}")
     df = pd.concat([pd.read_csv(f) for f in files], ignore_index=True)
     return df
 
@@ -51,7 +51,6 @@ def plot_convergence(df):
             label_suffix = "_1D" if d == 1 else "_2D"
             for method in ["Tsoulos", "PI-NSGA-II"]:
                 suffix_file = "pi" if method == "PI-NSGA-II" else "tsoulos"
-                # Handle 1D filenames: Helmholtz_1D_pi_convergence.csv
                 fname = os.path.join(RESULTS_DIR, f"{pde}{label_suffix}_{suffix_file}_convergence.csv")
                 if not os.path.exists(fname): continue
                 
@@ -103,8 +102,7 @@ def main():
     print(f"Loaded {len(df)} points.")
     print_analysis(df)
     plot_convergence(df)
-    # Otros plots pueden agregarse aquí si es necesario
-    print("Plots saved in results/")
+    print(f"Plots saved in {RESULTS_DIR}")
 
 if __name__ == "__main__":
     main()

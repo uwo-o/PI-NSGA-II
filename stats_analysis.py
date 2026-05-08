@@ -20,6 +20,9 @@ matplotlib.rcParams.update({
 })
 warnings.filterwarnings("ignore")
 
+# Rutas dinámicas
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+RESULTS_DIR = os.path.join(BASE_DIR, "results")
 COLORS = {"Tsoulos": "#E07535", "PI-NSGA-II": "#2E86C1", "PINN": "#27AE60"}
 
 def load_data(path):
@@ -40,7 +43,7 @@ def wilcoxon_test(a, b):
     except: return None, None, None
 
 def main():
-    path = "/home/uwo/Projects/PI-NSGA-II/results/all_runs_summary.csv"
+    path = os.path.join(RESULTS_DIR, "all_runs_summary.csv")
     if not os.path.exists(path):
         print(f"File not found: {path}")
         return
@@ -68,7 +71,8 @@ def main():
             stats_rows.append({"pde": pde, "metric": label, "mean_ts": mean_a, "mean_pi": mean_b, "p_val": p})
 
     # Save summary
-    pd.DataFrame(stats_rows).to_csv("/home/uwo/Projects/PI-NSGA-II/results/stats_summary.csv", index=False)
+    summary_path = os.path.join(RESULTS_DIR, "stats_summary.csv")
+    pd.DataFrame(stats_rows).to_csv(summary_path, index=False)
     
     # Plotting (Boxplots)
     n_pdes = len(pdes)
@@ -82,8 +86,9 @@ def main():
         axes[i].set_yscale("log")
     
     plt.tight_layout()
-    fig.savefig("/home/uwo/Projects/PI-NSGA-II/results/boxplot_mse_dynamic.png", dpi=160)
-    print("\nStats analysis completed. Results in /home/uwo/Projects/PI-NSGA-II/results/stats_summary.csv")
+    boxplot_path = os.path.join(RESULTS_DIR, "boxplot_mse_dynamic.png")
+    fig.savefig(boxplot_path, dpi=160)
+    print(f"\nStats analysis completed. Results in {summary_path}")
 
 if __name__ == "__main__":
     main()

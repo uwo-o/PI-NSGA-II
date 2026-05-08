@@ -1,6 +1,9 @@
 #!/bin/bash
 set -e
-cd /home/uwo/Projects/PI-NSGA-II
+
+# Obtener el directorio del script para que sea dinámico
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
+cd "$SCRIPT_DIR"
 
 # 1. Build
 mkdir -p build && cd build
@@ -30,5 +33,5 @@ cd ..
 
 echo "=========================================================="
 echo "  PIPELINE FINISHED SUCCESSFULLY"
-echo "  Report available at: /home/uwo/Projects/PI-NSGA-II/report/results.pdf"
+echo "  Report available at: $SCRIPT_DIR/report/results.pdf"
 echo "=========================================================="

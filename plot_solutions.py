@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """
 plot_solutions.py — Visualización de soluciones 1D y 2D.
-Incluye comparación de Exacta, PI-NSGA-II, Tsoulos y PINN con sus respectivos errores.
 """
 import os, glob, numpy as np, pandas as pd, matplotlib, matplotlib.pyplot as plt
 
@@ -13,7 +12,9 @@ matplotlib.rcParams.update({
     "axes.labelsize": 8,
 })
 
-RESULTS_DIR = "/home/uwo/Projects/PI-NSGA-II/results"
+# Rutas dinámicas
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+RESULTS_DIR = os.path.join(BASE_DIR, "results")
 PDE_ORDER = ["Laplace", "Poisson", "Helmholtz", "Schrodinger"]
 
 def find_file(pattern):
@@ -65,7 +66,7 @@ def plot_solution(pde, dim):
         plt.close(fig)
         
     else:
-        # --- 2D PLOTS (2x4 Grid) ---
+        # --- 2D PLOTS ---
         N = int(np.sqrt(len(df_pi)))
         X = df_pi["x"].values.reshape(N, N); Y = df_pi["y"].values.reshape(N, N)
         Z_ex = df_pi["u_exact"].values.reshape(N, N)
