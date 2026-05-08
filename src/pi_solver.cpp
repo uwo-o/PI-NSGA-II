@@ -173,9 +173,16 @@ std::vector<PIIndividual> PISolver::run(int pop_size, int max_gen) {
         history_.push_back({g, 0.0, 0.0, b_tot});
 
         if (g % 25 == 0) {
+            double b_dom = 1e18, b_bnd = 1e18;
+            for (auto& ind : population_) {
+                if (ind.rank == 1) {
+                    b_dom = std::min(b_dom, ind.mse_domain);
+                    b_bnd = std::min(b_bnd, ind.mse_boundary);
+                }
+            }
             std::cout << "  [PI/" << prob_.name() << "] gen=" << g
-                      << "  val_mse=" << std::scientific << std::setprecision(3) << b_tot 
-                      << " (HoF)" << std::defaultfloat << "\n";
+                      << "  best_dom=" << std::scientific << std::setprecision(3) << b_dom
+                      << "  best_bnd=" << b_bnd << std::defaultfloat << "\n";
         }
 
         if (b_tot < Config::STOP_THRESHOLD) {
