@@ -12,6 +12,11 @@ struct PIIndividual : public Individual {
     void evaluate(const PDEProblem& prob, 
                   const std::vector<Point>& dom, 
                   const std::vector<Point>& bnd);
+                  
+    // Evaluación robusta en rejilla fija para el Hall of Fame
+    double get_validation_mse(const PDEProblem& prob, 
+                              const std::vector<Point>& val_dom, 
+                              const std::vector<Point>& val_bnd);
 };
 
 // ─── Solver de PI-NSGA-II ─────────────────────────────────────────────────────
@@ -22,7 +27,6 @@ public:
     std::vector<PIIndividual> run(int pop_size, int max_gen);
     std::vector<PIIndividual> pareto_front() const;
     
-    // Estadísticas de convergencia
     const std::vector<ConvergenceStats>& history() const { return history_; }
 
 private:
@@ -31,14 +35,21 @@ private:
     std::vector<PIIndividual> population_;
     std::vector<ConvergenceStats> history_;
 
-    // Puntos de evaluación (Fijos)
+    // Puntos Dinámicos (Training)
     std::vector<Point> dom_pts_;
     std::vector<Point> bnd_pts_;
 
-    // Operadores evolutivos
+    // Puntos Fijos (Validation/Elitism)
+    std::vector<Point> val_dom_pts_;
+    std::vector<Point> val_bnd_pts_;
+    
+    // Hall of Fame (Elite Robusto)
+    PIIndividual best_ever_;
+    bool has_best_ever_ = false;
+
     PIIndividual random_individual();
     PIIndividual make_offspring(const PIIndividual& a, const PIIndividual& b);
-
-    // Memetic Hill Climbing (Refinamiento de constantes)
     void hill_climb_constants(PIIndividual& ind, int iterations);
+    
+    void update_hall_of_fame();
 };

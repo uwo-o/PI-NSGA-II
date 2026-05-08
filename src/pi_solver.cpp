@@ -1,5 +1,5 @@
 // =============================================================================
-// pi_solver.cpp  —  Método Propuesto: PI-NSGA-II con AD simbólico exacto
+// pi_solver.cpp  —  Método Propuesto: PI-NSGA-II con Elitismo Robusto
 // =============================================================================
 
 #include "pi_solver.hpp"
@@ -18,56 +18,67 @@ void PIIndividual::evaluate(const PDEProblem& prob,
     tree_size = tree->count_nodes();
     root_type = tree->get_type();
 
-    // MSE dominio — residuo del PDE con AD simbólico exacto y pesado espacial
-    double sum_dom = 0.0;
-    double total_w = 0.0;
+    double sum_dom = 0.0, total_w = 0.0;
     for (auto& p : dom) {
         AD ad = tree->ad_eval(p.x, p.y);
         double res = prob.pde_residual_ad(ad, p.x, p.y);
         if (!std::isfinite(res)) { mse_domain = 1e10; mse_boundary = 1e10; return; }
-        
-        // Pesado espacial: más peso cerca de los bordes para evitar "coincidir solo al centro"
-        double dist_x = std::min(p.x, 1.0 - p.x);
-        double dist_y = std::min(p.y, 1.0 - p.y);
-        double min_dist = std::min(dist_x, dist_y);
-        double weight = 1.0 / (min_dist + 0.1); 
-        
+        double weight = 1.0 / (std::min(std::min(p.x, 1.0-p.x), std::min(p.y, 1.0-p.y)) + 0.1); 
         sum_dom += weight * res * res;
         total_w += weight;
     }
     mse_domain = (sum_dom / total_w); 
 
-    // --- PENALIZACIÓN DIMENSIONAL Y DE COMPLEJIDAD (2D) ---
     if (prob.dim == 2) {
-        bool has_x = tree->uses_variable(NodeType::VAR_X);
-        bool has_y = tree->uses_variable(NodeType::VAR_Y);
-        if (!has_x || !has_y) { mse_domain *= 100.0; }
-        if (tree_size < 5) { mse_domain *= 10.0; }
+        if (!tree->uses_variable(NodeType::VAR_X) || !tree->uses_variable(NodeType::VAR_Y)) mse_domain *= 100.0;
+        if (tree_size < 5) mse_domain *= 10.0;
     }
 
-    // MSE frontera — diferencia con condición de Dirichlet
     double sum_bnd = 0.0;
     for (auto& p : bnd) {
-        double u    = tree->eval(p.x, p.y);
+        double u = tree->eval(p.x, p.y);
         double diff = u - prob.bc(p.x, p.y);
         if (!std::isfinite(diff)) { mse_boundary = 1e10; return; }
         sum_bnd += diff * diff;
     }
-    
     double raw_bc_mse = sum_bnd / (double)bnd.size();
     mse_boundary = raw_bc_mse * Config::BC_WEIGHT;
-    
-    // Penalización de anclaje continua
     mse_domain += 100.0 * raw_bc_mse; 
+}
+
+double PIIndividual::get_validation_mse(const PDEProblem& prob, 
+                                        const std::vector<Point>& val_dom, 
+                                        const std::vector<Point>& val_bnd) 
+{
+    if (!tree) return 1e18;
+    double sum_dom = 0.0;
+    for (auto& p : val_dom) {
+        AD ad = tree->ad_eval(p.x, p.y);
+        double res = prob.pde_residual_ad(ad, p.x, p.y);
+        if (!std::isfinite(res)) return 1e18;
+        sum_dom += res * res;
+    }
+    double sum_bnd = 0.0;
+    for (auto& p : val_bnd) {
+        double diff = tree->eval(p.x, p.y) - prob.bc(p.x, p.y);
+        sum_bnd += diff * diff;
+    }
+    return (sum_dom / val_dom.size()) + (sum_bnd / val_bnd.size());
 }
 
 // ─── PISolver ─────────────────────────────────────────────────────────────────
 PISolver::PISolver(const PDEProblem& prob, unsigned seed)
     : prob_(prob), gen_(seed)
 {
-    // Generar puntos iniciales
+    // Puntos de entrenamiento iniciales
     dom_pts_ = prob_.domain_points(Config::N_DOMAIN);
     bnd_pts_ = prob_.boundary_points(Config::N_BOUNDARY);
+
+    // REJILLA DE VALIDACIÓN FIJA (Para el Elitismo Robusto)
+    // Usamos 400 puntos (20x20) fijos para medir la calidad real sin ruido.
+    int n_val = (prob.dim == 1) ? 200 : 400;
+    val_dom_pts_ = prob_.domain_points(n_val); 
+    val_bnd_pts_ = prob_.boundary_points(100);
 }
 
 PIIndividual PISolver::random_individual() {
@@ -93,29 +104,54 @@ PIIndividual PISolver::make_offspring(const PIIndividual& a, const PIIndividual&
     return child;
 }
 
+void PISolver::update_hall_of_fame() {
+    for (auto& ind : population_) {
+        if (ind.rank == 1) {
+            double v_mse = ind.get_validation_mse(prob_, val_dom_pts_, val_bnd_pts_);
+            if (!has_best_ever_ || v_mse < best_ever_.mse_domain) { // Usamos mse_domain para guardar el v_mse
+                best_ever_.tree = ind.tree->clone();
+                best_ever_.mse_domain = v_mse; // Guardamos el valor de validación aquí
+                has_best_ever_ = true;
+            }
+        }
+    }
+}
+
 std::vector<PIIndividual> PISolver::run(int pop_size, int max_gen) {
     population_.clear();
     history_.clear();
-    population_.reserve(pop_size);
+    has_best_ever_ = false;
+
     for (int i = 0; i < pop_size; ++i)
         population_.push_back(random_individual());
 
     std::uniform_real_distribution<double> dist(0.0, 1.0);
 
     for (int g = 0; g < max_gen; ++g) {
-        // --- REMUESTREO ALEATORIO UNIFORME ---
-        // Generamos nuevos puntos cada generación para cubrir todo el dominio sin SA
+        // 1. Remuestreo aleatorio
         dom_pts_.clear();
-        for(int i=0; i<Config::N_DOMAIN; ++i) {
+        for(int i=0; i<Config::N_DOMAIN; ++i) 
             dom_pts_.push_back({dist(gen_), dist(gen_)});
-        }
-        // Re-evaluar población con los nuevos puntos para evitar "overfitting" a la muestra anterior
-        for(auto& ind : population_) {
-            ind.evaluate(prob_, dom_pts_, bnd_pts_);
-        }
+        
+        for(auto& ind : population_) ind.evaluate(prob_, dom_pts_, bnd_pts_);
 
+        // 2. Selección NSGA-II
+        // (Ya se hizo al final de la gen anterior, excepto en la Gen 0)
+
+        // 3. Actualizar Hall of Fame (cada generación para máxima seguridad)
+        update_hall_of_fame();
+
+        // 4. Crear descendencia
         std::vector<PIIndividual> offspring;
         offspring.reserve(pop_size);
+        
+        // Inyectar el MEJOR GLOBAL (Elitismo Robusto)
+        if (has_best_ever_) {
+            PIIndividual elite;
+            elite.tree = best_ever_.tree->clone();
+            elite.evaluate(prob_, dom_pts_, bnd_pts_);
+            offspring.push_back(std::move(elite));
+        }
 
         while ((int)offspring.size() < pop_size) {
             int p1 = tournament_select(population_, gen_);
@@ -132,26 +168,19 @@ std::vector<PIIndividual> PISolver::run(int pop_size, int max_gen) {
         for (auto& x : offspring)   combined.push_back(std::move(x));
         population_ = nsga2_select_next(std::move(combined), pop_size);
 
-        double b_dom = 1e18, b_bnd = 1e18, b_tot = 1e18;
-        for (auto& ind : population_) {
-            if (ind.rank == 1) {
-                b_dom = std::min(b_dom, ind.mse_domain);
-                b_bnd = std::min(b_bnd, ind.mse_boundary);
-                b_tot = std::min(b_tot, ind.mse_domain + ind.mse_boundary);
-            }
-        }
-        history_.push_back({g, b_dom, b_bnd, b_tot});
+        // Estadísticas (basadas en el mejor del Hall of Fame para estabilidad)
+        double b_tot = has_best_ever_ ? best_ever_.mse_domain : 1e18;
+        history_.push_back({g, 0.0, 0.0, b_tot});
 
         if (g % 25 == 0) {
             std::cout << "  [PI/" << prob_.name() << "] gen=" << g
-                      << "  best_dom=" << std::scientific << std::setprecision(3) << b_dom
-                      << "  best_bnd=" << b_bnd << std::defaultfloat << "\n";
+                      << "  val_mse=" << std::scientific << std::setprecision(3) << b_tot 
+                      << " (HoF)" << std::defaultfloat << "\n";
         }
 
         if (b_tot < Config::STOP_THRESHOLD) {
-            std::cout << "  [PI/" << prob_.name() << "] Convergencia alcanzada en gen " << g 
-                      << " (error " << std::scientific << std::setprecision(2) << b_tot 
-                      << " < " << Config::STOP_THRESHOLD << ")\n" << std::defaultfloat;
+            std::cout << "  [PI/" << prob_.name() << "] Convergencia alcanzada (HoF error " 
+                      << b_tot << " < " << Config::STOP_THRESHOLD << ")\n";
             break;
         }
     }
