@@ -11,6 +11,7 @@
 // ─── Problema PDE ─────────────────────────────────────────────────────────────
 struct PDEProblem {
     PDE    type;
+    int    dim = 2;    // 1 o 2 dimensiones
     double k2 = 0.0;   // coeficiente k² en Helmholtz: ∇²u + k²u = f
 
     // Puntos de colocación interior (rejilla uniforme)
@@ -37,7 +38,7 @@ struct PDEProblem {
 };
 
 // ─── Fabricación de problemas ─────────────────────────────────────────────────
-PDEProblem make_laplace();
-PDEProblem make_poisson();
-PDEProblem make_helmholtz(double k = 1.0);
-PDEProblem make_schrodinger();
+PDEProblem make_laplace(int dim = 2);
+PDEProblem make_poisson(int dim = 2);
+PDEProblem make_helmholtz(int dim = 2, double k = 1.0);
+PDEProblem make_schrodinger(int dim = 2);

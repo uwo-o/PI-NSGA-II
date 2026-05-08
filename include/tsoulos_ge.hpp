@@ -53,6 +53,7 @@ public:
 
     // Retorna el frente de Pareto (rank == 1) de la última ejecución
     std::vector<TsoulosIndividual> pareto_front() const;
+    std::vector<ConvergenceStats>  get_history() const { return history_; }
 
 private:
     PDEProblem             prob_;
@@ -60,6 +61,7 @@ private:
     std::vector<Point>     dom_pts_;
     std::vector<Point>     bnd_pts_;
     std::vector<TsoulosIndividual> population_;
+    std::vector<ConvergenceStats>  history_;
 
     TsoulosIndividual random_individual();
     TsoulosIndividual crossover(const TsoulosIndividual& a, const TsoulosIndividual& b);

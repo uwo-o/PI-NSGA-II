@@ -26,8 +26,34 @@ AD TerminalNode::ad_eval(double x, double y) const {
 double TerminalNode::eval(double x, double y) const { return ad_eval(x,y).v; }
 void TerminalNode::mutate_erc(std::mt19937& gen, double sigma) {
     if (type == NodeType::ERC) {
-        std::normal_distribution<double> d(0.0, sigma);
-        erc_val += d(gen);
+        std::uniform_real_distribution<double> prob(0.0, 1.0);
+        if (prob(gen) < 0.15) { // 15% chance to "snap" to a canonical constant
+            static const double PI = std::acos(-1.0);
+            static const double E  = std::exp(1.0);
+            
+            // Candidates: Nearest integer, half-integer, PI, and e
+            double v = erc_val;
+            std::vector<double> candidates = {
+                std::round(v),           // Integer
+                std::round(v * 2.0)/2.0, // Half-integer
+                PI, -PI, PI/2.0, -PI/2.0,
+                E,  -E
+            };
+            
+            double best_c = candidates[0];
+            double min_dist = std::abs(v - best_c);
+            for (double c : candidates) {
+                if (std::abs(v - c) < min_dist) {
+                    min_dist = std::abs(v - c);
+                    best_c = c;
+                }
+            }
+            erc_val = best_c;
+        } else {
+            // Normal Gaussian mutation
+            std::normal_distribution<double> d(0.0, sigma);
+            erc_val += d(gen);
+        }
     }
 }
 void TerminalNode::print(std::ostream& os) const {
@@ -38,7 +64,20 @@ void TerminalNode::print(std::ostream& os) const {
 void TerminalNode::print_latex(std::ostream& os) const {
     if (type == NodeType::VAR_X) os << "x";
     else if (type == NodeType::VAR_Y) os << "y";
-    else os << erc_val;
+    else {
+        static const double PI = std::acos(-1.0);
+        static const double E  = std::exp(1.0);
+        double v = erc_val;
+        double eps = 1e-6;
+        
+        if (std::abs(v - PI) < eps) os << "\\pi";
+        else if (std::abs(v + PI) < eps) os << "-\\pi";
+        else if (std::abs(v - PI/2.0) < eps) os << "\\frac{\\pi}{2}";
+        else if (std::abs(v + PI/2.0) < eps) os << "-\\frac{\\pi}{2}";
+        else if (std::abs(v - E) < eps) os << "e";
+        else if (std::abs(v + E) < eps) os << "-e";
+        else os << erc_val;
+    }
 }
 
 // ─── UnaryNode ───────────────────────────────────────────────────────────────
@@ -61,37 +100,16 @@ AD UnaryNode::ad_eval(double x, double y) const {
         double sh = std::sinh(C.v), ch = std::cosh(C.v);
         r.v = ch; r.dx = sh * C.dx; r.dy = sh * C.dy;
         r.dxx = sh*C.dxx + ch*C.dx*C.dx; r.dyy = sh*C.dyy + ch*C.dy*C.dy;
-    } else if (type == NodeType::TANH) {
-        double th = std::tanh(C.v);
-        double sech2 = 1.0 - th*th;
-        r.v = th; r.dx = sech2 * C.dx; r.dy = sech2 * C.dy;
-        r.dxx = sech2*C.dxx - 2.0*th*sech2*C.dx*C.dx;
-        r.dyy = sech2*C.dyy - 2.0*th*sech2*C.dy*C.dy;
     } else if (type == NodeType::EXP) {
         double ev = std::exp(std::min(C.v, EXP_CLAMP));
         r.v = ev; r.dx = ev * C.dx; r.dy = ev * C.dy;
         r.dxx = ev * (C.dxx + C.dx*C.dx); r.dyy = ev * (C.dyy + C.dy*C.dy);
-    } else if (type == NodeType::SQRT) {
-        double arg = std::abs(C.v) + SQRT_EPS;
-        double sq = std::sqrt(arg);
-        double sign_v = (C.v >= 0.0) ? 1.0 : -1.0;
-        double gp = sign_v / (2.0 * sq);
-        double gpp = -1.0 / (4.0 * sq * arg);
-        r.v = sq; r.dx = gp * C.dx; r.dy = gp * C.dy;
-        r.dxx = gpp*C.dx*C.dx + gp*C.dxx; r.dyy = gpp*C.dy*C.dy + gp*C.dyy;
-    } else if (type == NodeType::LOG) {
-        double arg = std::abs(C.v) + LOG_EPS;
-        double sign_v = (C.v >= 0.0) ? 1.0 : -1.0;
-        double gp = sign_v / arg;
-        double gpp = -1.0 / (arg * arg);
-        r.v = std::log(arg); r.dx = gp * C.dx; r.dy = gp * C.dy;
-        r.dxx = gpp*C.dx*C.dx + gp*C.dxx; r.dyy = gpp*C.dy*C.dy + gp*C.dyy;
-    } else if (type == NodeType::ATAN) {
-        double denom = 1.0 + C.v*C.v;
-        double gp = 1.0 / denom;
-        double gpp = -2.0*C.v / (denom*denom);
-        r.v = std::atan(C.v); r.dx = gp * C.dx; r.dy = gp * C.dy;
-        r.dxx = gpp*C.dx*C.dx + gp*C.dxx; r.dyy = gpp*C.dy*C.dy + gp*C.dyy;
+    } else if (type == NodeType::SQR) {
+        r.v = C.v * C.v;
+        r.dx = 2.0 * C.v * C.dx;
+        r.dy = 2.0 * C.v * C.dy;
+        r.dxx = 2.0 * (C.dx * C.dx + C.v * C.dxx);
+        r.dyy = 2.0 * (C.dy * C.dy + C.v * C.dyy);
     }
     return r;
 }
@@ -101,11 +119,8 @@ void UnaryNode::print(std::ostream& os) const {
     else if (type == NodeType::COS) os << "cos(";
     else if (type == NodeType::SINH) os << "sinh(";
     else if (type == NodeType::COSH) os << "cosh(";
-    else if (type == NodeType::TANH) os << "tanh(";
     else if (type == NodeType::EXP) os << "exp(";
-    else if (type == NodeType::SQRT) os << "sqrt(";
-    else if (type == NodeType::LOG) os << "log(";
-    else if (type == NodeType::ATAN) os << "atan(";
+    else if (type == NodeType::SQR) os << "sqr(";
     child->print(os);
     os << ")";
 }
@@ -114,13 +129,10 @@ void UnaryNode::print_latex(std::ostream& os) const {
     else if (type == NodeType::COS) os << "\\cos(";
     else if (type == NodeType::SINH) os << "\\sinh(";
     else if (type == NodeType::COSH) os << "\\cosh(";
-    else if (type == NodeType::TANH) os << "\\tanh(";
     else if (type == NodeType::EXP) os << "\\exp(";
-    else if (type == NodeType::SQRT) os << "\\sqrt{";
-    else if (type == NodeType::LOG) os << "\\log(";
-    else if (type == NodeType::ATAN) os << "\\arctan(";
+    else if (type == NodeType::SQR) os << "{(";
     child->print_latex(os);
-    if (type == NodeType::SQRT) os << "}";
+    if (type == NodeType::SQR) os << ")}^2";
     else os << ")";
 }
 
@@ -203,8 +215,7 @@ NodePtr make_unary(NodeType op, NodePtr c) {
 NodePtr random_tree(int max_depth, std::mt19937& gen, bool force_terminal) {
     static const std::vector<NodeType> binaries = { NodeType::ADD, NodeType::SUB, NodeType::MUL, NodeType::DIV };
     static const std::vector<NodeType> unaries = {
-        NodeType::SIN, NodeType::COS, NodeType::SINH, NodeType::COSH, NodeType::TANH,
-        NodeType::EXP, NodeType::SQRT, NodeType::LOG, NodeType::ATAN
+        NodeType::SIN, NodeType::COS, NodeType::SINH, NodeType::COSH, NodeType::EXP, NodeType::SQR
     };
     std::uniform_real_distribution<double> ud(0.0, 1.0);
     std::uniform_real_distribution<double> erc_dist(-3.0, 3.0);
@@ -329,22 +340,6 @@ NodePtr UnaryNode::simplify() const {
     if (s_child->get_type() == NodeType::ERC) {
         double val = eval(0, 0); // dummy eval
         return make_erc(val);
-    }
-    
-    // Pattern: exp(log(x)) -> x, log(exp(x)) -> x
-    if (type == NodeType::EXP && s_child->get_type() == NodeType::LOG) {
-        return dynamic_cast<UnaryNode*>(s_child.get())->child->clone();
-    }
-    if (type == NodeType::LOG && s_child->get_type() == NodeType::EXP) {
-        return dynamic_cast<UnaryNode*>(s_child.get())->child->clone();
-    }
-    
-    // Pattern: sqrt(x*x) -> x (simplificación agresiva)
-    if (type == NodeType::SQRT && s_child->get_type() == NodeType::MUL) {
-        auto* b = dynamic_cast<BinaryNode*>(s_child.get());
-        if (is_structurally_equal(b->left.get(), b->right.get())) {
-            return b->left->clone();
-        }
     }
 
     return std::make_unique<UnaryNode>(type, std::move(s_child));

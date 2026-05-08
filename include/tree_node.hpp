@@ -13,9 +13,8 @@ inline bool is_binary(NodeType t) {
 }
 inline bool is_unary(NodeType t) {
     return t == NodeType::SIN  || t == NodeType::COS  ||
-           t == NodeType::SINH || t == NodeType::COSH || t == NodeType::TANH ||
-           t == NodeType::EXP  || t == NodeType::SQRT ||
-           t == NodeType::LOG  || t == NodeType::ATAN;
+           t == NodeType::SINH || t == NodeType::COSH ||
+           t == NodeType::EXP  || t == NodeType::SQR;
 }
 inline bool is_terminal(NodeType t) {
     return t == NodeType::VAR_X || t == NodeType::VAR_Y || t == NodeType::ERC;
@@ -39,6 +38,12 @@ public:
     virtual void print(std::ostream& os) const = 0;
     virtual void print_latex(std::ostream& os) const = 0;
     virtual NodePtr simplify() const = 0;
+    
+    // Para Hill Climbing: recolecta punteros a todas las constantes del árbol
+    virtual void collect_ercs(std::vector<double*>& ptrs) = 0;
+
+    // Verifica si el árbol usa una variable específica (VAR_X o VAR_Y)
+    virtual bool uses_variable(NodeType var_type) const = 0;
 };
 
 // ─── Clases derivadas ─────────────────────────────────────────────────────────
@@ -58,6 +63,12 @@ public:
     void print(std::ostream& os) const override;
     void print_latex(std::ostream& os) const override;
     NodePtr simplify() const override;
+    void collect_ercs(std::vector<double*>& ptrs) override {
+        if (type == NodeType::ERC) ptrs.push_back(&erc_val);
+    }
+    bool uses_variable(NodeType var_type) const override {
+        return type == var_type;
+    }
 };
 
 class UnaryNode : public Node {
@@ -75,6 +86,12 @@ public:
     void print(std::ostream& os) const override;
     void print_latex(std::ostream& os) const override;
     NodePtr simplify() const override;
+    void collect_ercs(std::vector<double*>& ptrs) override {
+        child->collect_ercs(ptrs);
+    }
+    bool uses_variable(NodeType var_type) const override {
+        return child->uses_variable(var_type);
+    }
 };
 
 class BinaryNode : public Node {
@@ -96,6 +113,13 @@ public:
     void print(std::ostream& os) const override;
     void print_latex(std::ostream& os) const override;
     NodePtr simplify() const override;
+    void collect_ercs(std::vector<double*>& ptrs) override {
+        left->collect_ercs(ptrs);
+        right->collect_ercs(ptrs);
+    }
+    bool uses_variable(NodeType var_type) const override {
+        return left->uses_variable(var_type) || right->uses_variable(var_type);
+    }
 };
 
 // ─── Constructores de nodos ───────────────────────────────────────────────────

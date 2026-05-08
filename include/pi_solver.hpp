@@ -1,58 +1,44 @@
 #pragma once
-// =============================================================================
-// pi_solver.hpp  —  Método Propuesto: PI-NSGA-II con árboles simbólicos
-//   Genotipo = árbol de expresión
-//   Derivadas = Diferenciación Automática exacta (sin FD)
-//   Constantes = ERC con mutación Gaussiana paramétrica
-// =============================================================================
-
 #include "common.hpp"
-#include "tree_node.hpp"
 #include "pde_problems.hpp"
-#include <vector>
+#include "tree_node.hpp"
 #include <random>
+#include <memory>
 
-// ─── Individuo PI ─────────────────────────────────────────────────────────────
+// ─── Individuo de PI-NSGA-II ──────────────────────────────────────────────────
 struct PIIndividual : public Individual {
     NodePtr tree;
 
-    PIIndividual() = default;
-    PIIndividual(const PIIndividual& other) : Individual(other) {
-        if (other.tree) tree = other.tree->clone();
-    }
-    PIIndividual(PIIndividual&&) noexcept = default;
-    PIIndividual& operator=(const PIIndividual& other) {
-        if (this != &other) {
-            Individual::operator=(other);
-            tree = other.tree ? other.tree->clone() : nullptr;
-        }
-        return *this;
-    }
-    PIIndividual& operator=(PIIndividual&&) noexcept = default;
-
-    // Evalúa MSE dominio (AD simbólico) + MSE frontera
-    void evaluate(const PDEProblem& prob,
-                  const std::vector<Point>& dom,
+    void evaluate(const PDEProblem& prob, 
+                  const std::vector<Point>& dom, 
                   const std::vector<Point>& bnd);
 };
 
-// ─── Clase Algoritmo PI-NSGA-II ───────────────────────────────────────────────
+// ─── Solver de PI-NSGA-II ─────────────────────────────────────────────────────
 class PISolver {
 public:
-    explicit PISolver(const PDEProblem& prob, unsigned seed = 42);
+    PISolver(const PDEProblem& prob, unsigned seed = 42);
 
-    std::vector<PIIndividual> run(int pop_size = Config::POP_SIZE,
-                                  int max_gen  = Config::MAX_GEN);
-
+    std::vector<PIIndividual> run(int pop_size, int max_gen);
     std::vector<PIIndividual> pareto_front() const;
+    
+    // Estadísticas de convergencia
+    const std::vector<ConvergenceStats>& history() const { return history_; }
 
 private:
-    PDEProblem           prob_;
-    std::mt19937         gen_;
-    std::vector<Point>   dom_pts_;
-    std::vector<Point>   bnd_pts_;
+    const PDEProblem& prob_;
+    std::mt19937 gen_;
     std::vector<PIIndividual> population_;
+    std::vector<ConvergenceStats> history_;
 
+    // Puntos de evaluación (Fijos)
+    std::vector<Point> dom_pts_;
+    std::vector<Point> bnd_pts_;
+
+    // Operadores evolutivos
     PIIndividual random_individual();
     PIIndividual make_offspring(const PIIndividual& a, const PIIndividual& b);
+
+    // Memetic Hill Climbing (Refinamiento de constantes)
+    void hill_climb_constants(PIIndividual& ind, int iterations);
 };

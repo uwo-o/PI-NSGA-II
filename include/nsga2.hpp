@@ -22,14 +22,21 @@ std::vector<std::vector<int>> fast_non_dominated_sort(std::vector<Ind>& pop) {
     for (int i = 0; i < n; ++i) {
         for (int j = 0; j < n; ++j) {
             if (i == j) continue;
-            bool i_dom_j = (pop[i].mse_domain  <= pop[j].mse_domain  &&
-                            pop[i].mse_boundary <= pop[j].mse_boundary) &&
-                           (pop[i].mse_domain  <  pop[j].mse_domain  ||
-                            pop[i].mse_boundary <  pop[j].mse_boundary);
-            bool j_dom_i = (pop[j].mse_domain  <= pop[i].mse_domain  &&
-                            pop[j].mse_boundary <= pop[i].mse_boundary) &&
-                           (pop[j].mse_domain  <  pop[i].mse_domain  ||
-                            pop[j].mse_boundary <  pop[i].mse_boundary);
+            // 3 Objetivos: Domain MSE, Boundary MSE, Tree Size (Complejidad)
+            bool i_dom_j = (pop[i].mse_domain   <= pop[j].mse_domain   &&
+                            pop[i].mse_boundary <= pop[j].mse_boundary &&
+                            pop[i].tree_size    <= pop[j].tree_size)   &&
+                           (pop[i].mse_domain   <  pop[j].mse_domain   ||
+                            pop[i].mse_boundary <  pop[j].mse_boundary ||
+                            pop[i].tree_size    <  pop[j].tree_size);
+
+            bool j_dom_i = (pop[j].mse_domain   <= pop[i].mse_domain   &&
+                            pop[j].mse_boundary <= pop[i].mse_boundary &&
+                            pop[j].tree_size    <= pop[i].tree_size)   &&
+                           (pop[j].mse_domain   <  pop[i].mse_domain   ||
+                            pop[j].mse_boundary <  pop[i].mse_boundary ||
+                            pop[j].tree_size    <  pop[i].tree_size);
+
             if (i_dom_j) dominated_by[i].push_back(j);
             else if (j_dom_i) domination_count[i]++;
         }
@@ -83,29 +90,13 @@ void crowding_distance_assignment(std::vector<Ind>& pop,
     };
     assign_obj([](const Ind& i){ return i.mse_domain;   });
     assign_obj([](const Ind& i){ return i.mse_boundary; });
-
-    // ── Structural Crowding Distance (Genotypic Diversity) ──
-    for (int i : front) {
-        if (pop[i].crowding >= 1e18) continue;
-        int same_root_count = 0;
-        for (int j : front) {
-            if (i != j && pop[i].root_type == pop[j].root_type) {
-                same_root_count++;
-            }
-        }
-        // Penalty: reduce crowding distance proportionally to the number of structural duplicates
-        pop[i].crowding /= (1.0 + same_root_count);
-    }
+    assign_obj([](const Ind& i){ return (double)i.tree_size; });
 }
 
 // ─── Comparador NSGA-II (rank y crowding) ────────────────────────────────────
 template<typename Ind>
 bool nsga2_dominates(const Ind& a, const Ind& b) {
     if (a.rank != b.rank) return a.rank < b.rank;
-    // Bloat Control (Parsimony Pressure)
-    if (std::abs(a.crowding - b.crowding) < 1e-5) {
-        return a.tree_size < b.tree_size;
-    }
     return a.crowding > b.crowding;
 }
 

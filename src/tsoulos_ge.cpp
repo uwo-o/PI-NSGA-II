@@ -1,5 +1,5 @@
 // =============================================================================
-// koza_bnf.cpp  —  Método Koza con gramática BNF y diferencias finitas
+// tsoulos_ge.cpp  —  Método Koza con gramática BNF y diferencias finitas
 // =============================================================================
 
 #include "tsoulos_ge.hpp"
@@ -7,47 +7,34 @@
 #include <iostream>
 #include <algorithm>
 #include <numeric>
+#include <iomanip>
 
 // ─── Gramática BNF ────────────────────────────────────────────────────────────
-//  <expr>  ::= <expr> <op> <expr>  | <unary>(<expr>) | <var> | <digit>
-//  <op>    ::= + | - | * | /
-//  <unary> ::= sin | cos | sinh | cosh | tanh | exp | sqrt | log | atan
-//  <var>   ::= x | y
-//  <digit> ::= 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9
-// Se usa "wrapping" circular cuando se agotan los codones.
 NodePtr bnf_to_tree(const std::vector<int>& codons,
                     int& idx, int depth, int max_depth)
 {
     if (codons.empty()) return make_erc(1.0);
-
     auto next_codon = [&]() -> int {
         int c = codons[idx % codons.size()];
         idx++;
         return c;
     };
-
-    // Lista completa de unarios PDE/ODE
     static const NodeType UNARY_OPS[] = {
         NodeType::SIN,  NodeType::COS,
-        NodeType::SINH, NodeType::COSH, NodeType::TANH,
-        NodeType::EXP,  NodeType::SQRT,
-        NodeType::LOG,  NodeType::ATAN
+        NodeType::SINH, NodeType::COSH,
+        NodeType::EXP,  NodeType::SQR
     };
-    static constexpr int N_UNARY = 9;
+    static constexpr int N_UNARY = 6;
 
     if (depth >= max_depth) {
-        // Forzar terminal
         int c = next_codon();
         if (c % 3 == 0) return make_var('x');
         if (c % 3 == 1) return make_var('y');
-        // <digit> en [0, 9]
         return make_erc((double)(next_codon() % 10));
     }
 
     int rule = next_codon() % 4;
-
     if (rule == 0) {
-        // <expr> <op> <expr>
         NodePtr L = bnf_to_tree(codons, idx, depth + 1, max_depth);
         int op_code = next_codon() % 4;
         NodePtr R = bnf_to_tree(codons, idx, depth + 1, max_depth);
@@ -58,28 +45,23 @@ NodePtr bnf_to_tree(const std::vector<int>& codons,
         return make_binary(op, std::move(L), std::move(R));
     }
     else if (rule == 1) {
-        // <unary>(<expr>) — todos los operadores PDE/ODE
         NodeType op = UNARY_OPS[next_codon() % N_UNARY];
         NodePtr child = bnf_to_tree(codons, idx, depth + 1, max_depth);
         return make_unary(op, std::move(child));
     }
     else if (rule == 2) {
-        // <var>
         return (next_codon() % 2 == 0) ? make_var('x') : make_var('y');
     }
     else {
-        // <digit> — constante en [0, 9]
         return make_erc((double)(next_codon() % 10));
     }
 }
 
-// ─── TsoulosIndividual::decode ───────────────────────────────────────────────────
 void TsoulosIndividual::decode() {
     int idx = 0;
     tree = bnf_to_tree(codons, idx, 0, Config::MAX_TREE_DEPTH);
 }
 
-// ─── TsoulosIndividual::evaluate ─────────────────────────────────────────────────
 void TsoulosIndividual::evaluate(const PDEProblem& prob,
                               const std::vector<Point>& dom,
                               const std::vector<Point>& bnd)
@@ -89,7 +71,6 @@ void TsoulosIndividual::evaluate(const PDEProblem& prob,
     tree_size = tree->count_nodes();
     root_type = tree->get_type();
 
-    // MSE dominio — Laplaciano por diferencias finitas y pesado espacial (Alpha)
     double sum_dom = 0.0;
     double total_w = 0.0;
     for (auto& p : dom) {
@@ -104,21 +85,16 @@ void TsoulosIndividual::evaluate(const PDEProblem& prob,
         } else {
             res = lap + prob.k2 * u - prob.source(p.x, p.y);
         }
-        
         if (!std::isfinite(res)) { mse_domain = 1e10; mse_boundary = 1e10; return; }
-
-        // Pesado espacial: más peso cerca de los bordes
         double dist_x = std::min(p.x, 1.0 - p.x);
         double dist_y = std::min(p.y, 1.0 - p.y);
         double min_dist = std::min(dist_x, dist_y);
         double weight = 1.0 / (min_dist + 0.1); 
-
         sum_dom += weight * res * res;
         total_w += weight;
     }
-    mse_domain = Config::ALPHA_WEIGHT * (sum_dom / total_w);
+    mse_domain = (sum_dom / total_w);
 
-    // MSE frontera — diferencia con condición de Dirichlet (Beta = 1 - Alpha)
     double sum_bnd = 0.0;
     for (auto& p : bnd) {
         double u    = tree->eval(p.x, p.y);
@@ -126,10 +102,14 @@ void TsoulosIndividual::evaluate(const PDEProblem& prob,
         if (!std::isfinite(diff)) { mse_boundary = 1e10; return; }
         sum_bnd += diff * diff;
     }
-    mse_boundary = (1.0 - Config::ALPHA_WEIGHT) * (sum_bnd / (double)bnd.size());
+    
+    double raw_bc_mse = sum_bnd / (double)bnd.size();
+    mse_boundary = raw_bc_mse * Config::BC_WEIGHT;
+    
+    // Penalización continua también en Tsoulos para evitar el "engaño" de la solución nula
+    mse_domain += 100.0 * raw_bc_mse;
 }
 
-// ─── TsoulosSolver ───────────────────────────────────────────────────────────────
 TsoulosSolver::TsoulosSolver(const PDEProblem& prob, unsigned seed)
     : prob_(prob), gen_(seed)
 {
@@ -150,7 +130,6 @@ TsoulosIndividual TsoulosSolver::random_individual() {
 TsoulosIndividual TsoulosSolver::crossover(const TsoulosIndividual& a, const TsoulosIndividual& b) {
     TsoulosIndividual child;
     child.codons.resize(Config::CODON_LENGTH);
-    // Cruce en un punto (codon-level)
     std::uniform_int_distribution<int> cut(1, Config::CODON_LENGTH - 1);
     int c = cut(gen_);
     for (int i = 0; i < Config::CODON_LENGTH; ++i)
@@ -162,7 +141,6 @@ TsoulosIndividual TsoulosSolver::crossover(const TsoulosIndividual& a, const Tso
 void TsoulosSolver::mutate(TsoulosIndividual& ind) {
     std::uniform_int_distribution<int> pos(0, Config::CODON_LENGTH - 1);
     std::uniform_int_distribution<int> val(0, 255);
-    // Mutar ~10% de los codones
     int n_mut = std::max(1, Config::CODON_LENGTH / 10);
     for (int i = 0; i < n_mut; ++i)
         ind.codons[pos(gen_)] = val(gen_);
@@ -170,46 +148,48 @@ void TsoulosSolver::mutate(TsoulosIndividual& ind) {
 }
 
 std::vector<TsoulosIndividual> TsoulosSolver::run(int pop_size, int max_gen) {
-    // Inicialización
     population_.clear();
     population_.reserve(pop_size);
     for (int i = 0; i < pop_size; ++i)
         population_.push_back(random_individual());
-
-    // Bucle generacional NSGA-II
+    history_.clear();
     for (int gen = 0; gen < max_gen; ++gen) {
-        // Generar hijos
         std::vector<TsoulosIndividual> offspring;
         offspring.reserve(pop_size);
-        std::uniform_real_distribution<double> prob(0.0, 1.0);
-
         while ((int)offspring.size() < pop_size) {
             int p1 = tournament_select(population_, gen_);
             int p2 = tournament_select(population_, gen_);
-            TsoulosIndividual child;
-            if (prob(gen_) < Config::CROSSOVER_PROB)
-                child = crossover(population_[p1], population_[p2]);
-            else
-                child = population_[p1]; // copia
-            if (prob(gen_) < Config::MUTATION_PROB)
-                mutate(child);
+            TsoulosIndividual child = crossover(population_[p1], population_[p2]);
+            mutate(child);
+            child.decode();
             child.evaluate(prob_, dom_pts_, bnd_pts_);
             offspring.push_back(std::move(child));
         }
-
-        // Combinar y seleccionar
         std::vector<TsoulosIndividual> combined;
         combined.reserve(pop_size * 2);
-        for (auto& x : population_) combined.push_back(std::move(x)); // unique_ptr must move!
+        for (auto& x : population_) combined.push_back(std::move(x)); 
         for (auto& x : offspring)   combined.push_back(std::move(x));
         population_ = nsga2_select_next(std::move(combined), pop_size);
 
-        // Progreso (cada 25 generaciones)
+        double b_dom = 1e18, b_bnd = 1e18, b_tot = 1e18;
+        for (auto& ind : population_) {
+            if (ind.rank == 1) {
+                b_dom = std::min(b_dom, ind.mse_domain);
+                b_bnd = std::min(b_bnd, ind.mse_boundary);
+                b_tot = std::min(b_tot, ind.mse_domain + ind.mse_boundary);
+            }
+        }
+        history_.push_back({gen, b_dom, b_bnd, b_tot});
         if (gen % 25 == 0) {
-            auto& best = population_.front();
             std::cout << "  [Tsoulos/" << prob_.name() << "] gen=" << gen
-                      << "  dom=" << best.mse_domain
-                      << "  bnd=" << best.mse_boundary << "\n";
+                      << "  best_dom=" << std::scientific << std::setprecision(3) << b_dom
+                      << "  best_bnd=" << b_bnd << std::defaultfloat << "\n";
+        }
+        if (b_tot < Config::STOP_THRESHOLD) {
+            std::cout << "  [Tsoulos/" << prob_.name() << "] Convergencia alcanzada en gen " << gen 
+                      << " (error " << std::scientific << std::setprecision(2) << b_tot 
+                      << " < " << Config::STOP_THRESHOLD << ")\n" << std::defaultfloat;
+            break;
         }
     }
     return population_;

@@ -1,54 +1,48 @@
 #pragma once
 // =============================================================================
-// common.hpp  —  Tipos base, parámetros globales y struct AD
+// common.hpp  —  Tipos de datos y constantes globales
 // =============================================================================
 
 #include <vector>
 #include <string>
-#include <cmath>
 #include <limits>
 
-// ─── PDE types ────────────────────────────────────────────────────────────────
+// ─── Tipos de PDE soportados ──────────────────────────────────────────────────
 enum class PDE { LAPLACE, POISSON, HELMHOLTZ, SCHRODINGER };
 
-inline std::string pde_name(PDE p) {
-    switch (p) {
-        case PDE::LAPLACE:   return "Laplace";
-        case PDE::POISSON:   return "Poisson";
+inline std::string pde_name(PDE t) {
+    switch (t) {
+        case PDE::LAPLACE:     return "Laplace";
+        case PDE::POISSON:     return "Poisson";
         case PDE::HELMHOLTZ:   return "Helmholtz";
         case PDE::SCHRODINGER: return "Schrodinger";
     }
     return "Unknown";
 }
 
-// ─── 2-D point ────────────────────────────────────────────────────────────────
-struct Point { double x, y; };
-
-// ─── Tipos de nodo (NodeType) ─────────────────────────────────────────────────
+// ─── Tipos de Nodo del árbol ──────────────────────────────────────────────────
 enum class NodeType {
-    VAR_X, VAR_Y, ERC,            // terminales
-    ADD, SUB, MUL, DIV,            // operadores binarios
-    SIN,  COS,                     // trigonométricas
-    SINH, COSH, TANH,              // hiperbólicas  (Laplace, difusión, onda)
-    EXP,                           // exponencial   (calor, amortiguamiento)
-    SQRT,                          // raíz cuadrada (Bessel, potencial)
-    LOG,                           // log(|·|+ε)    (Laplace polar, Green)
-    ATAN,                          // arctan        (Laplace polar)
-    UNKNOWN                        // fallback
+    ADD, SUB, MUL, DIV,
+    SIN, COS, SINH, COSH, EXP, SQR,
+    VAR_X, VAR_Y, ERC,
+    UNKNOWN
 };
 
-// ─── Automatic Differentiation value ─────────────────────────────────────────
-// Holds u(x,y) and its first/second partials computed in a single tree pass.
+// ─── Estructura Dual (Valor + Derivadas) para AD ──────────────────────────────
 struct AD {
-    double v   = 0.0; // u
-    double dx  = 0.0; // ∂u/∂x
-    double dy  = 0.0; // ∂u/∂y
-    double dxx = 0.0; // ∂²u/∂x²
-    double dyy = 0.0; // ∂²u/∂y²
+    double v;   // valor
+    double dx, dy;
+    double dxx, dyy;
 };
 
-// ─── NSGA-II individual (method-agnostic) ─────────────────────────────────────
+// ─── Punto en el dominio ──────────────────────────────────────────────────────
+struct Point {
+    double x, y;
+};
+
+// ─── Clase base para individuo (para NSGA-II genérico) ────────────────────────
 struct Individual {
+    virtual ~Individual() = default;
     double mse_domain   = std::numeric_limits<double>::max();
     double mse_boundary = std::numeric_limits<double>::max();
     int    rank         = 0;
@@ -57,16 +51,25 @@ struct Individual {
     NodeType root_type  = NodeType::UNKNOWN;
 };
 
+// ─── Estadísticas de convergencia por generación ─────────────────────────────
+struct ConvergenceStats {
+    int    gen;
+    double best_mse_domain;
+    double best_mse_boundary;
+    double best_total_mse;
+};
+
 // ─── Parámetros globales ──────────────────────────────────────────────────────
 namespace Config {
-    constexpr int    POP_SIZE       = 250;   // +50% diversidad en frente de Pareto
-    constexpr int    MAX_GEN        = 400;   // 2x generaciones → mejor convergencia
-    constexpr int    N_DOMAIN       = 400;   // más puntos de colocación interiores
-    constexpr int    N_BOUNDARY     = 80;    // mejor representación de ∂Ω
-    constexpr double ERC_SIGMA      = 0.20;  // mayor exploración de constantes
-    constexpr int    MAX_TREE_DEPTH = 5;    // expresiones más complejas
-    constexpr int    CODON_LENGTH   = 64;    // genotipos BNF más largos
-    constexpr double CROSSOVER_PROB  = 0.75;
-    constexpr double MUTATION_PROB   = 0.3;
-    constexpr double ALPHA_WEIGHT    = 0.4; // Peso para Dominio (Beta = 1 - Alpha para BC)
+    constexpr int    POP_SIZE       = 100;   
+    constexpr int    MAX_GEN        = 500;   
+    constexpr int    N_DOMAIN       = 150;   // Reducido para velocidad (usaremos muestreo aleatorio por gen)
+    constexpr int    N_BOUNDARY     = 100;    
+    constexpr double ERC_SIGMA      = 0.25;  
+    constexpr int    MAX_TREE_DEPTH = 7;     
+    constexpr int    CODON_LENGTH   = 64;    
+    constexpr double CROSSOVER_PROB = 0.85;  
+    constexpr double MUTATION_PROB  = 0.3;   
+    constexpr double BC_WEIGHT      = 10.0;  
+    constexpr double STOP_THRESHOLD  = 1e-6;
 }
