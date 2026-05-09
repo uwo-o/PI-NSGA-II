@@ -46,8 +46,10 @@ private:
     // Hall of Fame (Elite Robusto)
     PIIndividual best_ever_;
     bool has_best_ever_ = false;
+    int current_max_depth_ = 3;
 
     PIIndividual random_individual();
+    PIIndividual random_individual_special();
     PIIndividual make_offspring(const PIIndividual& a, const PIIndividual& b);
     void hill_climb_constants(PIIndividual& ind, int iterations);
     

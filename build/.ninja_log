@@ -1,6 +1,0 @@
-# ninja log v7
-2	1321	1777831386849456872	CMakeFiles/pi_nsga2.dir/src/pde_problems.cpp.o	aa54cdccd372b021
-69	2267	1777833533416080987	CMakeFiles/pi_nsga2.dir/src/tree_node.cpp.o	2fed6af342511165
-69	2500	1777833533416565087	CMakeFiles/pi_nsga2.dir/src/pi_solver.cpp.o	7bc34d1f5980abeb
-69	2595	1777833533416668822	CMakeFiles/pi_nsga2.dir/main.cpp.o	7474b61fd6e63dad
-2595	2975	1777833535942019005	pi_nsga2	cf181e7b3f5a9cdc

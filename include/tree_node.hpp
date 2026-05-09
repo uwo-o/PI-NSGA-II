@@ -20,6 +20,7 @@ inline bool is_terminal(NodeType t) {
     return t == NodeType::VAR_X || t == NodeType::VAR_Y || t == NodeType::ERC;
 }
 
+class PDEProblem;
 class Node;
 using NodePtr = std::unique_ptr<Node>;
 
@@ -38,6 +39,7 @@ public:
     virtual void print(std::ostream& os) const = 0;
     virtual void print_latex(std::ostream& os) const = 0;
     virtual NodePtr simplify() const = 0;
+    virtual NodePtr prune_recursive(const PDEProblem& prob, const std::vector<Point>& dom, const std::vector<Point>& bnd, double original_mse, double tolerance) = 0;
     
     // Para Hill Climbing: recolecta punteros a todas las constantes del árbol
     virtual void collect_ercs(std::vector<double*>& ptrs) = 0;
@@ -63,6 +65,7 @@ public:
     void print(std::ostream& os) const override;
     void print_latex(std::ostream& os) const override;
     NodePtr simplify() const override;
+    NodePtr prune_recursive(const PDEProblem& prob, const std::vector<Point>& dom, const std::vector<Point>& bnd, double original_mse, double tolerance) override;
     void collect_ercs(std::vector<double*>& ptrs) override {
         if (type == NodeType::ERC) ptrs.push_back(&erc_val);
     }
@@ -86,6 +89,7 @@ public:
     void print(std::ostream& os) const override;
     void print_latex(std::ostream& os) const override;
     NodePtr simplify() const override;
+    NodePtr prune_recursive(const PDEProblem& prob, const std::vector<Point>& dom, const std::vector<Point>& bnd, double original_mse, double tolerance) override;
     void collect_ercs(std::vector<double*>& ptrs) override {
         child->collect_ercs(ptrs);
     }
@@ -113,6 +117,7 @@ public:
     void print(std::ostream& os) const override;
     void print_latex(std::ostream& os) const override;
     NodePtr simplify() const override;
+    NodePtr prune_recursive(const PDEProblem& prob, const std::vector<Point>& dom, const std::vector<Point>& bnd, double original_mse, double tolerance) override;
     void collect_ercs(std::vector<double*>& ptrs) override {
         left->collect_ercs(ptrs);
         right->collect_ercs(ptrs);
@@ -130,13 +135,14 @@ NodePtr make_unary(NodeType op, NodePtr child);
 
 // ─── Generación aleatoria de árbol ────────────────────────────────────────────
 NodePtr random_tree(int max_depth, std::mt19937& gen, bool force_terminal = false);
+NodePtr random_tree_special(int max_depth, std::mt19937& gen, int dim);
 
 // ─── Operadores evolutivos ────────────────────────────────────────────────────
 // Cruce homólogo estructural
 std::pair<NodePtr, NodePtr> tree_crossover(const NodePtr& p1, const NodePtr& p2, std::mt19937& gen);
 
 // Mutación: reemplaza un subárbol aleatorio con uno nuevo
-NodePtr tree_mutate(const NodePtr& tree, std::mt19937& gen);
+NodePtr tree_mutate(const NodePtr& tree, std::mt19937& gen, int max_depth = 3);
 void replace_node_at(NodePtr& current, int& target_idx, NodePtr& replacement);
 
 // ─── Laplaciano via diferencias finitas (para método Koza) ───────────────────

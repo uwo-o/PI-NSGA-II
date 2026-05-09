@@ -3,6 +3,7 @@
 // =============================================================================
 
 #include "tree_node.hpp"
+#include "pde_problems.hpp"
 #include <cmath>
 #include <stdexcept>
 #include <sstream>
@@ -240,6 +241,79 @@ NodePtr random_tree(int max_depth, std::mt19937& gen, bool force_terminal) {
     }
 }
 
+// Helper para generar árboles restringidos a ciertas variables
+static NodePtr random_tree_restricted(int max_depth, std::mt19937& gen, const std::vector<NodeType>& allowed_vars) {
+    static const std::vector<NodeType> binaries = { NodeType::ADD, NodeType::SUB, NodeType::MUL, NodeType::DIV };
+    static const std::vector<NodeType> unaries = { NodeType::SIN, NodeType::COS, NodeType::EXP, NodeType::SQR };
+    
+    std::uniform_real_distribution<double> ud(0.0, 1.0);
+    std::uniform_real_distribution<double> erc_dist(-2.0, 2.0);
+
+    if (max_depth <= 0 || ud(gen) < 0.3) {
+        if (allowed_vars.empty()) return make_erc(erc_dist(gen));
+        std::uniform_int_distribution<int> vi(0, (int)allowed_vars.size());
+        int c = vi(gen);
+        if (c < (int)allowed_vars.size()) return std::make_unique<TerminalNode>(allowed_vars[c]);
+        return make_erc(erc_dist(gen));
+    }
+
+    if (ud(gen) < 0.6) {
+        NodeType op = binaries[std::uniform_int_distribution<int>(0, binaries.size()-1)(gen)];
+        return make_binary(op, random_tree_restricted(max_depth-1, gen, allowed_vars), 
+                               random_tree_restricted(max_depth-1, gen, allowed_vars));
+    } else {
+        NodeType op = unaries[std::uniform_int_distribution<int>(0, unaries.size()-1)(gen)];
+        return make_unary(op, random_tree_restricted(max_depth-1, gen, allowed_vars));
+    }
+}
+
+NodePtr random_tree_special(int max_depth, std::mt19937& gen, int dim) {
+    std::uniform_int_distribution<int> arch_dist(0, 3);
+    int archetype = arch_dist(gen);
+
+    if (dim == 1) {
+        // En 1D: Paridad f(x^2) o Separabilidad f(x) + C
+        if (std::uniform_real_distribution<double>(0,1)(gen) < 0.5) {
+             auto x2 = make_binary(NodeType::MUL, make_var('x'), make_var('x'));
+             return make_unary(NodeType::SIN, make_binary(NodeType::MUL, make_erc(1.0), std::move(x2))); // e.g. sin(ax^2)
+        } else {
+             return random_tree_restricted(max_depth, gen, {NodeType::VAR_X});
+        }
+    }
+
+    // Archetypes for 2D
+    if (archetype == 0) { // Separable: f(x) + g(y) or f(x) * g(y)
+        auto fx = random_tree_restricted(max_depth - 1, gen, {NodeType::VAR_X});
+        auto gy = random_tree_restricted(max_depth - 1, gen, {NodeType::VAR_Y});
+        NodeType op = (std::uniform_real_distribution<double>(0,1)(gen) < 0.7) ? NodeType::ADD : NodeType::MUL;
+        return make_binary(op, std::move(fx), std::move(gy));
+    } 
+    else if (archetype == 1) { // Radial: f(x^2 + y^2)
+        auto x2 = make_binary(NodeType::MUL, make_var('x'), make_var('x'));
+        auto y2 = make_binary(NodeType::MUL, make_var('y'), make_var('y'));
+        auto r2 = make_binary(NodeType::ADD, std::move(x2), std::move(y2));
+        // Aplicamos una función aleatoria al radio al cuadrado
+        NodePtr core = random_tree_restricted(max_depth - 2, gen, {}); // f(C)
+        // Sustituimos la constante por r2 (simplificado: usamos unario/binario)
+        return make_unary(NodeType::EXP, make_binary(NodeType::MUL, make_erc(-0.5), std::move(r2)));
+    } 
+    else if (archetype == 2) { // Even Symmetry: f(x^2, y^2)
+        auto x2 = make_binary(NodeType::MUL, make_var('x'), make_var('x'));
+        auto y2 = make_binary(NodeType::MUL, make_var('y'), make_var('y'));
+        // Construimos un árbol que use x2 y y2 como sus "variables"
+        return make_binary(NodeType::ADD, make_binary(NodeType::MUL, make_erc(1.0), std::move(x2)),
+                                          make_binary(NodeType::MUL, make_erc(1.0), std::move(y2)));
+    }
+    else { // Periodic: f(sin(x), cos(x), sin(y), cos(y))
+        auto sx = make_unary(NodeType::SIN, make_var('x'));
+        auto cx = make_unary(NodeType::COS, make_var('x'));
+        auto sy = make_unary(NodeType::SIN, make_var('y'));
+        auto cy = make_unary(NodeType::COS, make_var('y'));
+        return make_binary(NodeType::ADD, make_binary(NodeType::MUL, make_erc(1.0), std::move(sx)),
+                                          make_binary(NodeType::MUL, make_erc(1.0), std::move(cy)));
+    }
+}
+
 // ─── Homologous Crossover (Cruce Homólogo Estructural) ───────────────────────
 std::pair<NodePtr, NodePtr> tree_crossover(const NodePtr& p1, const NodePtr& p2, std::mt19937& gen) {
     if (!p1 || !p2) return {nullptr, nullptr};
@@ -283,12 +357,12 @@ void replace_node_at(NodePtr& current, int& target_idx, NodePtr& replacement) {
     }
 }
 
-NodePtr tree_mutate(const NodePtr& tree, std::mt19937& gen) {
+NodePtr tree_mutate(const NodePtr& tree, std::mt19937& gen, int max_depth) {
     NodePtr t = tree->clone();
     int sz = t->count_nodes();
     std::uniform_int_distribution<int> d(0, sz - 1);
     int target = d(gen);
-    NodePtr new_sub = random_tree(3, gen); // Max depth 3 for subtrees
+    NodePtr new_sub = random_tree(max_depth, gen); 
     replace_node_at(t, target, new_sub);
     return t;
 }
@@ -410,4 +484,45 @@ double fd_laplacian(const NodePtr& tree, double x, double y, double h) {
     double dxx = (vxp - 2.0*v + vxm) / (h*h);
     double dyy = (vyp - 2.0*v + vym) / (h*h);
     return dxx + dyy;
+}
+
+// ─── Poda Recursiva ───────────────────────────────────────────────────────────
+static double calculate_mse_simple(const NodePtr& tree, const PDEProblem& prob, const std::vector<Point>& dom, const std::vector<Point>& bnd) {
+    double sum_dom = 0.0;
+    for (auto& p : dom) {
+        AD ad = tree->ad_eval(p.x, p.y);
+        double res = prob.pde_residual_ad(ad, p.x, p.y);
+        sum_dom += res * res;
+    }
+    double sum_bnd = 0.0;
+    for (auto& p : bnd) {
+        double diff = tree->eval(p.x, p.y) - prob.bc(p.x, p.y);
+        sum_bnd += diff * diff;
+    }
+    return (sum_dom / dom.size()) + (sum_bnd / bnd.size());
+}
+
+NodePtr TerminalNode::prune_recursive(const PDEProblem& prob, const std::vector<Point>& dom, const std::vector<Point>& bnd, double original_mse, double tolerance) {
+    return clone();
+}
+
+NodePtr UnaryNode::prune_recursive(const PDEProblem& prob, const std::vector<Point>& dom, const std::vector<Point>& bnd, double original_mse, double tolerance) {
+    auto new_child = child->prune_recursive(prob, dom, bnd, original_mse, tolerance);
+    auto current_node = std::make_unique<UnaryNode>(type, std::move(new_child));
+    double v0 = current_node->eval(0.5, 0.5);
+    NodePtr const_node = std::make_unique<TerminalNode>(NodeType::ERC, v0);
+    double new_mse = calculate_mse_simple(const_node, prob, dom, bnd);
+    if (new_mse <= original_mse * (1.0 + tolerance)) return const_node;
+    return current_node;
+}
+
+NodePtr BinaryNode::prune_recursive(const PDEProblem& prob, const std::vector<Point>& dom, const std::vector<Point>& bnd, double original_mse, double tolerance) {
+    auto new_l = left->prune_recursive(prob, dom, bnd, original_mse, tolerance);
+    auto new_r = right->prune_recursive(prob, dom, bnd, original_mse, tolerance);
+    auto current_node = std::make_unique<BinaryNode>(type, std::move(new_l), std::move(new_r));
+    double v0 = current_node->eval(0.5, 0.5);
+    NodePtr const_node = std::make_unique<TerminalNode>(NodeType::ERC, v0);
+    double new_mse = calculate_mse_simple(const_node, prob, dom, bnd);
+    if (new_mse <= original_mse * (1.0 + tolerance)) return const_node;
+    return current_node;
 }
