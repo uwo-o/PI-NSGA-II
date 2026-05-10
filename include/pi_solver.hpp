@@ -43,6 +43,8 @@ private:
     // Hall of Fame (Elite Robusto)
     PIIndividual best_ever_;
     bool has_best_ever_ = false;
+    int stagnation_counter_ = 0;
+    double last_best_mse_ = 1e18;
 
     PIIndividual random_individual();
     PIIndividual random_individual_special();

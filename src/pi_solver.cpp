@@ -160,6 +160,37 @@ std::vector<PIIndividual> PISolver::run(int pop_size, int max_gen) {
     for(int i=0; i<Config::N_BOUNDARY/2; ++i) fixed_bnd_pts_.push_back({dist(gen_), dist(gen_)});
 
     for (int g = 0; g < max_gen; ++g) {
+        // 1. Verificar Estancamiento
+        if (has_best_ever_) {
+            if (best_ever_.mse_domain < last_best_mse_ * 0.999) { // Mejora significativa (>0.1%)
+                last_best_mse_ = best_ever_.mse_domain;
+                stagnation_counter_ = 0;
+            } else {
+                stagnation_counter_++;
+            }
+        }
+
+        // 2. Ejecutar Cataclismo (Reinicio Suave) si hay estancamiento (50 gens)
+        if (stagnation_counter_ >= 50) {
+            std::cout << "  [!] Cataclismo: Estancamiento detectado (" << stagnation_counter_ 
+                      << " gens). Reinyectando diversidad...\n";
+            
+            std::vector<PIIndividual> next_pop;
+            // Preservamos el frente de Pareto (Rank 1)
+            for (auto& ind : population_) {
+                if (ind.rank == 1) next_pop.push_back(std::move(ind));
+            }
+            
+            // Rellenamos el resto con nuevos individuos aleatorios (incluyendo especiales)
+            int n_special = static_cast<int>(0.2 * pop_size);
+            while ((int)next_pop.size() < pop_size) {
+                if ((int)next_pop.size() < n_special) next_pop.push_back(random_individual_special());
+                else                                  next_pop.push_back(random_individual());
+            }
+            population_ = std::move(next_pop);
+            stagnation_counter_ = 0; // Reset tras el evento
+        }
+
         // Remuestreo dinámico (el otro 50%)
         dom_pts_ = fixed_dom_pts_;
         bnd_pts_ = fixed_bnd_pts_;
