@@ -66,7 +66,7 @@ namespace Config {
     constexpr int    N_DOMAIN       = 300;   // Incrementado para dar más peso al residuo PDE
     constexpr int    N_BOUNDARY     = 150;   // Reducido para evitar sobreajuste a la frontera
     constexpr double ERC_SIGMA      = 0.25;  
-    constexpr int    MAX_TREE_DEPTH = 7;     // Reducido para evitar bloat e incrementar velocidad
+    constexpr int    MAX_TREE_DEPTH = 10;    // Aumentado para permitir mayor expresividad física
     constexpr int    CODON_LENGTH   = 64;    
     constexpr double CROSSOVER_PROB = 0.85;  
     constexpr double MUTATION_PROB  = 0.4;  // .3 

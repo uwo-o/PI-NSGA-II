@@ -225,6 +225,11 @@ std::vector<PIIndividual> PISolver::run(int pop_size, int max_gen) {
         for (auto& x : population_) combined.push_back(std::move(x)); 
         for (auto& x : offspring)   combined.push_back(std::move(x));
         population_ = nsga2_select_next(std::move(combined), pop_size);
+        
+        // Pulido Continuo de Élite: Ajuste de constantes para el Rank 1 (Lamarckismo)
+        for (auto& ind : population_) {
+            if (ind.rank == 1) hill_climb_constants(ind, 5); 
+        }
 
         // b_tot para parada: el mínimo entre el mejor validado y el mejor de entrenamiento actual
         double current_best_train = 1e18;

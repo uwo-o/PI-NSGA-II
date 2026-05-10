@@ -22,20 +22,17 @@ std::vector<std::vector<int>> fast_non_dominated_sort(std::vector<Ind>& pop) {
     for (int i = 0; i < n; ++i) {
         for (int j = 0; j < n; ++j) {
             if (i == j) continue;
-            // 3 Objetivos: Domain MSE, Boundary MSE, Tree Size (Complejidad)
+            // Solo 2 Objetivos para el frente de Pareto: Domain MSE y Boundary MSE
+            // El Tree Size (Complejidad) se usará solo como desempate en Crowding
             bool i_dom_j = (pop[i].mse_domain   <= pop[j].mse_domain   &&
-                            pop[i].mse_boundary <= pop[j].mse_boundary &&
-                            pop[i].tree_size    <= pop[j].tree_size)   &&
+                            pop[i].mse_boundary <= pop[j].mse_boundary)   &&
                            (pop[i].mse_domain   <  pop[j].mse_domain   ||
-                            pop[i].mse_boundary <  pop[j].mse_boundary ||
-                            pop[i].tree_size    <  pop[j].tree_size);
+                            pop[i].mse_boundary <  pop[j].mse_boundary);
 
             bool j_dom_i = (pop[j].mse_domain   <= pop[i].mse_domain   &&
-                            pop[j].mse_boundary <= pop[i].mse_boundary &&
-                            pop[j].tree_size    <= pop[i].tree_size)   &&
+                            pop[j].mse_boundary <= pop[i].mse_boundary)   &&
                            (pop[j].mse_domain   <  pop[i].mse_domain   ||
-                            pop[j].mse_boundary <  pop[i].mse_boundary ||
-                            pop[j].tree_size    <  pop[i].tree_size);
+                            pop[j].mse_boundary <  pop[i].mse_boundary);
 
             if (i_dom_j) dominated_by[i].push_back(j);
             else if (j_dom_i) domination_count[i]++;
