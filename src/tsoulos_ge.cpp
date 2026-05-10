@@ -25,7 +25,7 @@ void TsoulosIndividual::evaluate(const PDEProblem& prob,
 
     double sum_dom = 0.0, total_w = 0.0;
     for (auto& p : dom) {
-        double lap = fd_laplacian(tree, p.x, p.y);
+        double lap = fd_laplacian(tree, p.x, p.y, prob.dim);
         double u   = tree->eval(p.x, p.y);
         double res;
         if (prob.type == PDE::SCHRODINGER) {

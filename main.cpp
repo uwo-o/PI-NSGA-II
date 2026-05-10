@@ -71,7 +71,8 @@ void save_best_expression(const std::vector<Ind>& pop, const std::string& path) 
     if (best) {
         std::ofstream f(path);
         f << "$$ \\hat{u}(x,y) = ";
-        best->tree->print_latex(f);
+        auto simple_tree = best->tree->simplify(); // Limpieza antes de exportar
+        simple_tree->print_latex(f);
         f << " $$" << std::endl;
     }
 }
@@ -207,6 +208,9 @@ void print_table(const std::string& lbl, const Stats& k, const Stats& p) {
               << " | " << std::setw(11) << p.hypervolume
               << " | " << std::setw(7)  << p.runtime_s << "s |\n";
     std::cout << "+------------------+-------------+-------------+----------+-------------+----------+\n";
+    std::string winner = (k.best_domain + k.best_bnd < p.best_domain + p.best_bnd) ? "Tsoulos" : "PI-NSGA-II";
+    std::cout << "| GANADOR DEL DUELO: " << std::left << std::setw(59) << winner << " |\n";
+    std::cout << "+------------------+-------------+-------------+----------+-------------+----------+\n";
 }
 
 // ─── Una corrida completa (3 PDEs × 2 métodos) ───────────────────────────────
@@ -219,6 +223,9 @@ std::vector<Stats> run_once(int run_id, const std::string& out_dir, bool verbose
         problems.push_back(make_helmholtz(d, 1.0));
         problems.push_back(make_schrodinger(d));
     }
+    problems.push_back(make_nonlinear_poisson());
+    problems.push_back(make_liouville());
+    problems.push_back(make_sine_gordon());
     std::vector<Stats> all_stats;
 
     for (auto& prob : problems) {
@@ -272,10 +279,18 @@ int main(int argc, char* argv[]) {
     std::cout << "=============================================================\n\n";
 
     fs::create_directories("results");
-    bool verbose = (n_runs == 1);
+    bool verbose = true; // Habilitado por petición del usuario para ver el progreso detallado
     std::vector<std::vector<Stats>> all_runs;
 
+    auto t0_all = std::chrono::steady_clock::now();
     for (int r = 0; r < n_runs; ++r) {
+        if (n_runs > 1) {
+            std::cout << "\n\033[1;34m" << "#############################################################" << "\033[0m\n";
+            std::cout << "\033[1;34m" << "  INICIANDO RUN " << r + 1 << " / " << n_runs << "\033[0m\n";
+            std::cout << "\033[1;34m" << "#############################################################" << "\033[0m\n";
+        }
+        
+        auto t0_run = std::chrono::steady_clock::now();
         std::string out_dir = (n_runs == 1) ? "results" : "results/run_" + std::to_string(r);
         if (n_runs > 1) fs::create_directories(out_dir);
         

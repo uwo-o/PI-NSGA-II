@@ -15,7 +15,7 @@ matplotlib.rcParams.update({
 # Rutas dinámicas
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 RESULTS_DIR = os.path.join(BASE_DIR, "results")
-PDE_ORDER = ["Laplace", "Poisson", "Helmholtz", "Schrodinger"]
+PDE_ORDER = ["Laplace", "Poisson", "Helmholtz", "Schrodinger", "NonlinearPoisson", "Liouville", "Sine-Gordon"]
 
 def find_file(pattern):
     matches = glob.glob(os.path.join(RESULTS_DIR, "**", pattern), recursive=True)
@@ -112,8 +112,9 @@ def plot_solution(pde, dim):
         plt.close(fig)
 
 def main():
-    for d in [1, 2]:
-        for pde in PDE_ORDER:
+    for pde in ["Laplace", "Poisson", "Helmholtz", "Schrodinger", "NonlinearPoisson", "Liouville", "Sine-Gordon"]:
+        for d in [1, 2]:
+            if pde == "NonlinearPoisson" and d == 1: continue
             plot_solution(pde, d)
 
 if __name__ == "__main__":

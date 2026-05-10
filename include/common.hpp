@@ -8,16 +8,19 @@
 #include <limits>
 
 // ─── Tipos de PDE soportados ──────────────────────────────────────────────────
-enum class PDE { LAPLACE, POISSON, HELMHOLTZ, SCHRODINGER };
+enum class PDE { LAPLACE, POISSON, HELMHOLTZ, SCHRODINGER, NONLINEAR_POISSON, LIOUVILLE, SINE_GORDON };
 
 inline std::string pde_name(PDE t) {
     switch (t) {
         case PDE::LAPLACE:     return "Laplace";
         case PDE::POISSON:     return "Poisson";
         case PDE::HELMHOLTZ:   return "Helmholtz";
-        case PDE::SCHRODINGER: return "Schrodinger";
+        case PDE::SCHRODINGER:       return "Schrodinger";
+        case PDE::NONLINEAR_POISSON: return "NonlinearPoisson";
+        case PDE::LIOUVILLE:         return "Liouville";
+        case PDE::SINE_GORDON:       return "Sine-Gordon";
+        default: return "Unknown";
     }
-    return "Unknown";
 }
 
 // ─── Tipos de Nodo del árbol ──────────────────────────────────────────────────
@@ -61,12 +64,12 @@ struct ConvergenceStats {
 
 // ─── Parámetros globales ──────────────────────────────────────────────────────
 namespace Config {
-    constexpr int    POP_SIZE       = 300;   
+    constexpr int    POP_SIZE       = 500;   
     constexpr int    MAX_GEN        = 500;   
-    constexpr int    N_DOMAIN       = 600;   // Aumentado para mejor resolución en 2D
+    constexpr int    N_DOMAIN       = 600;   
     constexpr int    N_BOUNDARY     = 200;   
     constexpr double ERC_SIGMA      = 0.20;  
-    constexpr int    MAX_TREE_DEPTH = 10;    
+    constexpr int    MAX_TREE_DEPTH = 8;    
     constexpr int    CODON_LENGTH   = 64;    
     constexpr double CROSSOVER_PROB = 0.80;  
     constexpr double MUTATION_PROB  = 0.3;  

@@ -66,6 +66,11 @@ double PDEProblem::exact(double x, double y) const {
                 double dy = y - 0.5;
                 return std::exp(-(dx*dx + dy*dy));
             }
+            case PDE::NONLINEAR_POISSON:
+            case PDE::LIOUVILLE:
+                return 1.0 / (1.0 + x*x + y*y);
+            case PDE::SINE_GORDON:
+                return std::sin(PI*x) * std::sin(PI*y);
         }
     }
     return 0.0;
@@ -86,6 +91,24 @@ double PDEProblem::source(double x, double y) const {
                 return -2.0 * PI * PI * std::sin(PI*x) * std::sin(PI*y);
             case PDE::HELMHOLTZ:
                 return (k2 - 2.0*PI*PI) * std::sin(PI*x) * std::sin(PI*y);
+            case PDE::NONLINEAR_POISSON: {
+                double r2 = x*x + y*y;
+                double den = 1.0 + r2;
+                double laplacian = (8.0 * r2) / (den * den * den) - 4.0 / (den * den); // Corregido 2D
+                double u_val = 1.0 / den;
+                return laplacian + u_val * u_val;
+            }
+            case PDE::LIOUVILLE: {
+                double r2 = x*x + y*y;
+                double den = 1.0 + r2;
+                double laplacian = (8.0 * r2) / (den * den * den) - 4.0 / (den * den);
+                double u_val = 1.0 / den;
+                return laplacian + std::exp(u_val);
+            }
+            case PDE::SINE_GORDON: {
+                double u = std::sin(PI*x) * std::sin(PI*y);
+                return -2.0 * PI * PI * u + std::sin(u);
+            }
         }
     }
     return 0.0;
@@ -103,6 +126,15 @@ double PDEProblem::pde_residual_ad(const AD& ad, double x, double y) const {
         double V = 4.0 * r2;
         double E = (dim == 2) ? 4.0 : 2.0;
         return laplacian + (E - V) * ad.v;
+    }
+    if (type == PDE::NONLINEAR_POISSON) {
+        return laplacian + ad.v * ad.v - source(x, y);
+    }
+    if (type == PDE::LIOUVILLE) {
+        return laplacian + std::exp(ad.v) - source(x, y);
+    }
+    if (type == PDE::SINE_GORDON) {
+        return laplacian + std::sin(ad.v) - source(x, y);
     }
     return laplacian + k2 * ad.v - source(x, y);
 }
@@ -136,6 +168,27 @@ PDEProblem make_schrodinger(int dim) {
     PDEProblem p;
     p.type = PDE::SCHRODINGER;
     p.dim  = dim;
+    p.k2   = 0.0;
+    return p;
+}
+PDEProblem make_nonlinear_poisson() {
+    PDEProblem p;
+    p.type = PDE::NONLINEAR_POISSON;
+    p.dim  = 2;
+    p.k2   = 0.0;
+    return p;
+}
+PDEProblem make_liouville() {
+    PDEProblem p;
+    p.type = PDE::LIOUVILLE;
+    p.dim  = 2;
+    p.k2   = 0.0;
+    return p;
+}
+PDEProblem make_sine_gordon() {
+    PDEProblem p;
+    p.type = PDE::SINE_GORDON;
+    p.dim  = 2;
     p.k2   = 0.0;
     return p;
 }

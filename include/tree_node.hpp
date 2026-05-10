@@ -29,7 +29,7 @@ public:
     virtual ~Node() = default;
 
     virtual NodeType get_type() const = 0;
-    virtual AD ad_eval(double x, double y) const = 0;
+    virtual AD ad_eval(double x, double y, int dim = 2) const = 0;
     virtual double eval(double x, double y) const = 0;
     virtual NodePtr clone() const = 0;
     virtual int count_nodes() const = 0;
@@ -50,14 +50,14 @@ public:
 
 // ─── Clases derivadas ─────────────────────────────────────────────────────────
 
-class TerminalNode : public Node {
+class TerminalNode final : public Node {
 public:
     NodeType type;
     double erc_val;
 
     TerminalNode(NodeType t, double val = 0.0) : type(t), erc_val(val) {}
     NodeType get_type() const override { return type; }
-    AD ad_eval(double x, double y) const override;
+    AD ad_eval(double x, double y, int dim = 2) const override;
     double eval(double x, double y) const override;
     NodePtr clone() const override { return std::make_unique<TerminalNode>(type, erc_val); }
     int count_nodes() const override { return 1; }
@@ -74,14 +74,14 @@ public:
     }
 };
 
-class UnaryNode : public Node {
+class UnaryNode final : public Node {
 public:
     NodeType type;
     NodePtr child;
 
     UnaryNode(NodeType t, NodePtr c) : type(t), child(std::move(c)) {}
     NodeType get_type() const override { return type; }
-    AD ad_eval(double x, double y) const override;
+    AD ad_eval(double x, double y, int dim = 2) const override;
     double eval(double x, double y) const override;
     NodePtr clone() const override { return std::make_unique<UnaryNode>(type, child->clone()); }
     int count_nodes() const override { return 1 + child->count_nodes(); }
@@ -98,7 +98,7 @@ public:
     }
 };
 
-class BinaryNode : public Node {
+class BinaryNode final : public Node {
 public:
     NodeType type;
     NodePtr left;
@@ -106,7 +106,7 @@ public:
 
     BinaryNode(NodeType t, NodePtr l, NodePtr r) : type(t), left(std::move(l)), right(std::move(r)) {}
     NodeType get_type() const override { return type; }
-    AD ad_eval(double x, double y) const override;
+    AD ad_eval(double x, double y, int dim = 2) const override;
     double eval(double x, double y) const override;
     NodePtr clone() const override { return std::make_unique<BinaryNode>(type, left->clone(), right->clone()); }
     int count_nodes() const override { return 1 + left->count_nodes() + right->count_nodes(); }
@@ -146,4 +146,4 @@ NodePtr tree_mutate(const NodePtr& tree, std::mt19937& gen);
 void replace_node_at(NodePtr& current, int& target_idx, NodePtr& replacement);
 
 // ─── Laplaciano via diferencias finitas (para método Koza) ───────────────────
-double fd_laplacian(const NodePtr& tree, double x, double y, double h = 1e-5);
+double fd_laplacian(const NodePtr& tree, double x, double y, int dim, double h = 1e-5);

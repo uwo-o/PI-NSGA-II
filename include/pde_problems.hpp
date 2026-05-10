@@ -42,3 +42,6 @@ PDEProblem make_laplace(int dim = 2);
 PDEProblem make_poisson(int dim = 2);
 PDEProblem make_helmholtz(int dim = 2, double k = 1.0);
 PDEProblem make_schrodinger(int dim = 2);
+PDEProblem make_nonlinear_poisson();
+PDEProblem make_liouville();
+PDEProblem make_sine_gordon();

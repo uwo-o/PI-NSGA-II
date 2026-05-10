@@ -10,22 +10,22 @@
 #include <iomanip>
 
 // ─── PIIndividual::evaluate ───────────────────────────────────────────────────
-void PIIndividual::evaluate(const PDEProblem& prob,
-                            const std::vector<Point>& dom,
-                            const std::vector<Point>& bnd)
+void PIIndividual::evaluate(const PDEProblem& prob, 
+                         const std::vector<Point>& dom, 
+                         const std::vector<Point>& bnd) 
 {
-    if (!tree) { mse_domain = 1e10; mse_boundary = 1e10; tree_size = 0; root_type = NodeType::UNKNOWN; return; }
+    if (!tree) return;
     tree_size = tree->count_nodes();
-    root_type = tree->get_type();
 
-    // 1. MSE Dominio (Residuo PDE) - Usando AD exacta
-    double sum_dom = 0.0, total_w = 0.0;
+    // 1. Residuo PDE (Domain) - Usa AD con dimensión optimizada
+    double sum_dom = 0.0;
+    double total_w = 0.0;
+    int dim = prob.dim;
     for (auto& p : dom) {
-        AD ad = tree->ad_eval(p.x, p.y);
+        AD ad = tree->ad_eval(p.x, p.y, dim);
         double res = prob.pde_residual_ad(ad, p.x, p.y);
         if (!std::isfinite(res)) { mse_domain = 1e10; mse_boundary = 1e10; return; }
         
-        // Pesado espacial: más peso cerca de los bordes para estabilidad
         double dist = std::min({p.x, 1.0-p.x, p.y, 1.0-p.y});
         double weight = 1.0 / (dist + 0.1); 
         sum_dom += weight * res * res;
@@ -33,7 +33,7 @@ void PIIndividual::evaluate(const PDEProblem& prob,
     }
     double pde_mse = (sum_dom / total_w); 
 
-    // 2. MSE Frontera Estándar
+    // 2. MSE Frontera Estándar - Usa eval() rápido (sin derivadas)
     double sum_bnd = 0.0;
     for (auto& p : bnd) {
         double u_val = tree->eval(p.x, p.y);
@@ -47,10 +47,7 @@ void PIIndividual::evaluate(const PDEProblem& prob,
     double alpha = Config::PI_ALPHA;
     double beta  = 1.0 - alpha;
 
-    // Combinación convexa (alpha/beta) para guiar el dominio hacia la frontera
     mse_domain = beta * pde_mse + alpha * raw_bc_mse; 
-
-    // Objetivo de frontera puro (sin pesos arbitrarios para el Pareto)
     mse_boundary = raw_bc_mse; 
 }
 
@@ -61,7 +58,7 @@ double PIIndividual::get_validation_mse(const PDEProblem& prob,
     if (!tree) return 1e18;
     double sum_dom = 0.0;
     for (auto& p : val_dom) {
-        AD ad = tree->ad_eval(p.x, p.y);
+        AD ad = tree->ad_eval(p.x, p.y, prob.dim);
         double res = prob.pde_residual_ad(ad, p.x, p.y);
         sum_dom += res * res;
     }
@@ -144,6 +141,8 @@ std::vector<PIIndividual> PISolver::run(int pop_size, int max_gen) {
     population_.clear();
     history_.clear();
     has_best_ever_ = false;
+    cataclysm_count_ = 0;
+    stagnation_counter_ = 0;
 
     int n_special = static_cast<int>(0.2 * pop_size);
     for (int i = 0; i < pop_size; ++i) {
@@ -171,30 +170,31 @@ std::vector<PIIndividual> PISolver::run(int pop_size, int max_gen) {
         }
 
         // 2. Ejecutar Cataclismo (Reinicio Suave) si hay estancamiento (50 gens)
-        if (stagnation_counter_ >= 50) {
-            std::cout << "  [!] Cataclismo: Estancamiento detectado (" << stagnation_counter_ 
-                      << " gens). Reinyectando diversidad...\n";
-            
-            std::vector<PIIndividual> next_pop;
-            // Preservamos el frente de Pareto (Rank 1)
-            for (auto& ind : population_) {
-                if (ind.rank == 1) next_pop.push_back(std::move(ind));
+        // 2. Ejecutar Cataclismo (Reinicio Suave) si hay estancamiento (100 gens)
+        // 2. Ejecutar Cataclismo (Reinicio Suave) o Early Stop
+        if (stagnation_counter_ >= 100) {
+            if (cataclysm_count_ < 1) {
+                std::cout << "  [!] Cataclismo: Estancamiento detectado (" << stagnation_counter_ 
+                          << " gens). Reinyectando diversidad especializada (Intento 1/1)...\n";
+                
+                std::vector<PIIndividual> next_pop;
+                for (auto& ind : population_) if (ind.rank == 1) next_pop.push_back(std::move(ind));
+                
+                while ((int)next_pop.size() < pop_size) {
+                    PIIndividual new_ind = random_individual_special();
+                    hill_climb_constants(new_ind, 200); 
+                    next_pop.push_back(std::move(new_ind));
+                }
+                population_ = std::move(next_pop);
+                cataclysm_count_++;
+                stagnation_counter_ = 0; 
+            } else {
+                std::cout << "  [!] Early Stop: Sin mejoras tras inyección de genes. Terminando en gen " << g << ".\n";
+                break; // Detener ejecución completamente
             }
-            
-            // Rellenamos el resto con nuevos individuos aleatorios (incluyendo especiales)
-            int n_special = static_cast<int>(0.2 * pop_size);
-            while ((int)next_pop.size() < pop_size) {
-                if ((int)next_pop.size() < n_special) next_pop.push_back(random_individual_special());
-                else                                  next_pop.push_back(random_individual());
-            }
-            population_ = std::move(next_pop);
-            stagnation_counter_ = 0; // Reset tras el evento
         }
 
-        // Los puntos dom_pts_ y bnd_pts_ ahora son estáticos durante toda la ejecución.
-        
-        for(auto& ind : population_) ind.evaluate(prob_, dom_pts_, bnd_pts_);
-
+        // Eliminamos la re-evaluación global. Los individuos ya vienen evaluados.
         update_hall_of_fame();
 
         std::vector<PIIndividual> offspring;
@@ -211,8 +211,7 @@ std::vector<PIIndividual> PISolver::run(int pop_size, int max_gen) {
             int p1 = tournament_select(population_, gen_);
             int p2 = tournament_select(population_, gen_);
             PIIndividual child = make_offspring(population_[p1], population_[p2]);
-            hill_climb_constants(child, 20); 
-            child.evaluate(prob_, dom_pts_, bnd_pts_);
+            child.evaluate(prob_, dom_pts_, bnd_pts_); // Evaluamos solo al nacer
             offspring.push_back(std::move(child));
         }
 
@@ -222,9 +221,11 @@ std::vector<PIIndividual> PISolver::run(int pop_size, int max_gen) {
         for (auto& x : offspring)   combined.push_back(std::move(x));
         population_ = nsga2_select_next(std::move(combined), pop_size);
         
-        // Pulido Continuo de Élite: Ajuste de constantes para el Rank 1 (Lamarckismo)
+        // Pulido de Élite: Solo en los top sujetos (Rank 1) y con más intensidad
         for (auto& ind : population_) {
-            if (ind.rank == 1) hill_climb_constants(ind, 5); 
+            if (ind.rank == 1) {
+                hill_climb_constants(ind, 50); // Más iteraciones pero solo a los mejores
+            }
         }
 
         // b_tot para parada: el mínimo entre el mejor validado y el mejor de entrenamiento actual
@@ -280,36 +281,35 @@ void PISolver::hill_climb_constants(PIIndividual& ind, int iterations) {
     ind.tree->collect_ercs(ercs);
     if (ercs.empty()) return;
     
+    // Optimización: Hill Climbing con Mini-Batch (Submuestreo)
+    // Usamos solo un 10% de los puntos para acelerar el ajuste de constantes
+    std::vector<Point> mini_dom, mini_bnd;
+    std::sample(dom_pts_.begin(), dom_pts_.end(), std::back_inserter(mini_dom), 40, gen_);
+    std::sample(bnd_pts_.begin(), bnd_pts_.end(), std::back_inserter(mini_bnd), 20, gen_);
+
     std::normal_distribution<double> noise(0.0, Config::ERC_SIGMA);
     std::uniform_int_distribution<int> select_erc(0, (int)ercs.size() - 1);
 
     for (int i = 0; i < iterations; ++i) {
-        // Guardamos estado inicial
+        int idx_target = select_erc(gen_);
+        double old_val = *ercs[idx_target];
+
+        // Evaluación previa en mini-batch
+        ind.evaluate(prob_, mini_dom, mini_bnd);
         double old_dom = ind.mse_domain;
         double old_bnd = ind.mse_boundary;
-        int    old_sz  = ind.tree_size;
 
-        int idx = select_erc(gen_);
-        double old_val = *ercs[idx];
+        *ercs[idx_target] += noise(gen_);
+        ind.evaluate(prob_, mini_dom, mini_bnd);
+
+        // Si el nuevo estado es dominado por el viejo (es peor), revertimos
+        bool old_dominates_new = (old_dom <= ind.mse_domain && old_bnd <= ind.mse_boundary) &&
+                                 (old_dom < ind.mse_domain  || old_bnd < ind.mse_boundary);
         
-        // Mutación de la constante
-        *ercs[idx] += noise(gen_);
-        ind.evaluate(prob_, dom_pts_, bnd_pts_);
-
-        // Verificamos dominancia de Pareto (3 Objetivos)
-        // Solo revertimos si el nuevo estado es ESTRICTAMENTE PEOR (dominado por el anterior)
-        bool old_dominates_new = (old_dom <= ind.mse_domain   && 
-                                  old_bnd <= ind.mse_boundary && 
-                                  old_sz  <= ind.tree_size)    &&
-                                 (old_dom < ind.mse_domain    || 
-                                  old_bnd < ind.mse_boundary  || 
-                                  old_sz  < ind.tree_size);
-
         if (old_dominates_new) {
-            *ercs[idx] = old_val;
-            ind.mse_domain = old_dom;
-            ind.mse_boundary = old_bnd;
-            ind.tree_size = old_sz;
+             *ercs[idx_target] = old_val;
         }
     }
+    // Re-evaluación final con todos los puntos para mantener consistencia
+    ind.evaluate(prob_, dom_pts_, bnd_pts_);
 }
