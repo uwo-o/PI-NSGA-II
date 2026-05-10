@@ -142,7 +142,7 @@ NodePtr random_tree_special(int max_depth, std::mt19937& gen, int dim);
 std::pair<NodePtr, NodePtr> tree_crossover(const NodePtr& p1, const NodePtr& p2, std::mt19937& gen);
 
 // Mutación: reemplaza un subárbol aleatorio con uno nuevo
-NodePtr tree_mutate(const NodePtr& tree, std::mt19937& gen, int max_depth = 3);
+NodePtr tree_mutate(const NodePtr& tree, std::mt19937& gen);
 void replace_node_at(NodePtr& current, int& target_idx, NodePtr& replacement);
 
 // ─── Laplaciano via diferencias finitas (para método Koza) ───────────────────

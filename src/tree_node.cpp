@@ -357,12 +357,12 @@ void replace_node_at(NodePtr& current, int& target_idx, NodePtr& replacement) {
     }
 }
 
-NodePtr tree_mutate(const NodePtr& tree, std::mt19937& gen, int max_depth) {
+NodePtr tree_mutate(const NodePtr& tree, std::mt19937& gen) {
     NodePtr t = tree->clone();
     int sz = t->count_nodes();
     std::uniform_int_distribution<int> d(0, sz - 1);
     int target = d(gen);
-    NodePtr new_sub = random_tree(max_depth, gen); 
+    NodePtr new_sub = random_tree(3, gen);
     replace_node_at(t, target, new_sub);
     return t;
 }

@@ -61,15 +61,16 @@ struct ConvergenceStats {
 
 // ─── Parámetros globales ──────────────────────────────────────────────────────
 namespace Config {
-    constexpr int    POP_SIZE       = 200;   
-    constexpr int    MAX_GEN        = 500;   
+    constexpr int    POP_SIZE       = 300;   
+    constexpr int    MAX_GEN        = 1000;   
     constexpr int    N_DOMAIN       = 300;   // Incrementado para dar más peso al residuo PDE
     constexpr int    N_BOUNDARY     = 150;   // Reducido para evitar sobreajuste a la frontera
     constexpr double ERC_SIGMA      = 0.25;  
     constexpr int    MAX_TREE_DEPTH = 7;     // Reducido para evitar bloat e incrementar velocidad
     constexpr int    CODON_LENGTH   = 64;    
     constexpr double CROSSOVER_PROB = 0.85;  
-    constexpr double MUTATION_PROB  = 0.3;   
+    constexpr double MUTATION_PROB  = 0.4;  // .3 
     constexpr double PI_ALPHA       = 0.4;   // Balance Frontera (alpha) vs PDE (beta = 1-alpha)
+    constexpr int    TOURNAMENT_SIZE = 4;    // Presión de selección aumentada
     constexpr double STOP_THRESHOLD  = 1e-7; // Alta precisión analítica
 }

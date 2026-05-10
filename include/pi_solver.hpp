@@ -36,17 +36,13 @@ private:
     std::vector<ConvergenceStats> history_;
 
     // Puntos Dinámicos (Training)
-    std::vector<Point> dom_pts_;
-    std::vector<Point> bnd_pts_;
-
-    // Puntos Fijos (Validation/Elitism)
-    std::vector<Point> val_dom_pts_;
-    std::vector<Point> val_bnd_pts_;
+    std::vector<Point> dom_pts_, bnd_pts_;
+    std::vector<Point> val_dom_pts_, val_bnd_pts_;
+    std::vector<Point> fixed_dom_pts_, fixed_bnd_pts_;
     
     // Hall of Fame (Elite Robusto)
     PIIndividual best_ever_;
     bool has_best_ever_ = false;
-    int current_max_depth_ = 3;
 
     PIIndividual random_individual();
     PIIndividual random_individual_special();

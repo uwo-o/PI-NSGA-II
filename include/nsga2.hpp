@@ -104,8 +104,14 @@ bool nsga2_dominates(const Ind& a, const Ind& b) {
 template<typename Ind>
 int tournament_select(const std::vector<Ind>& pop, std::mt19937& gen) {
     std::uniform_int_distribution<int> dist(0, (int)pop.size() - 1);
-    int a = dist(gen), b = dist(gen);
-    return nsga2_dominates(pop[a], pop[b]) ? a : b;
+    int best = dist(gen);
+    for (int i = 1; i < Config::TOURNAMENT_SIZE; ++i) {
+        int candidate = dist(gen);
+        if (nsga2_dominates(pop[candidate], pop[best])) {
+            best = candidate;
+        }
+    }
+    return best;
 }
 
 // ─── Selección de la siguiente generación ─────────────────────────────────────

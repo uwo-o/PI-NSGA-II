@@ -103,16 +103,27 @@ PIIndividual PISolver::random_individual_special() {
 PIIndividual PISolver::make_offspring(const PIIndividual& a, const PIIndividual& b) {
     std::uniform_real_distribution<double> p_dist(0.0, 1.0);
     PIIndividual child;
+    bool is_elite = (a.rank == 1 || b.rank == 1);
+
     if (p_dist(gen_) < Config::CROSSOVER_PROB) {
         auto [c1, c2] = tree_crossover(a.tree, b.tree, gen_);
         child.tree = std::move(c1);
     } else {
         child.tree = a.tree->clone();
     }
-    if (p_dist(gen_) < Config::MUTATION_PROB)
-        child.tree = tree_mutate(child.tree, gen_, current_max_depth_);
-    if (p_dist(gen_) < 0.4) 
-        child.tree->mutate_erc(gen_, Config::ERC_SIGMA);
+
+    if (is_elite) {
+        // Individuos élite: Mutación de parámetros para ajuste fino (70%) vs Estructural (30%)
+        if (p_dist(gen_) < 0.7) child.tree->mutate_erc(gen_, Config::ERC_SIGMA * 0.5); 
+        else                    child.tree = tree_mutate(child.tree, gen_);
+    } else {
+        // Individuos normales: Mutación estructural estándar
+        if (p_dist(gen_) < Config::MUTATION_PROB)
+            child.tree = tree_mutate(child.tree, gen_);
+        if (p_dist(gen_) < 0.4) 
+            child.tree->mutate_erc(gen_, Config::ERC_SIGMA);
+    }
+    
     return child;
 }
 
@@ -142,14 +153,18 @@ std::vector<PIIndividual> PISolver::run(int pop_size, int max_gen) {
 
     std::uniform_real_distribution<double> dist(0.0, 1.0);
 
-    for (int g = 0; g < max_gen; ++g) {
-        // Crecimiento dinámico de la profundidad (Curriculum Learning)
-        current_max_depth_ = 3 + (g * (Config::MAX_TREE_DEPTH - 3)) / max_gen;
+    // Inicializar puntos fijos (50% de la cuota total)
+    fixed_dom_pts_.clear();
+    fixed_bnd_pts_.clear();
+    for(int i=0; i<Config::N_DOMAIN/2; ++i) fixed_dom_pts_.push_back({dist(gen_), dist(gen_)});
+    for(int i=0; i<Config::N_BOUNDARY/2; ++i) fixed_bnd_pts_.push_back({dist(gen_), dist(gen_)});
 
-        // Remuestreo dinámico
-        dom_pts_.clear();
-        for(int i=0; i<Config::N_DOMAIN; ++i) 
-            dom_pts_.push_back({dist(gen_), dist(gen_)});
+    for (int g = 0; g < max_gen; ++g) {
+        // Remuestreo dinámico (el otro 50%)
+        dom_pts_ = fixed_dom_pts_;
+        bnd_pts_ = fixed_bnd_pts_;
+        for(int i=0; i<Config::N_DOMAIN/2; ++i) dom_pts_.push_back({dist(gen_), dist(gen_)});
+        for(int i=0; i<Config::N_BOUNDARY/2; ++i) bnd_pts_.push_back({dist(gen_), dist(gen_)});
         
         for(auto& ind : population_) ind.evaluate(prob_, dom_pts_, bnd_pts_);
 
