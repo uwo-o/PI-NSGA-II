@@ -6,6 +6,7 @@
 #include "pde_problems.hpp"
 #include <cmath>
 #include <stdexcept>
+#include <algorithm>
 #include <sstream>
 
 static constexpr double LOG_EPS  = 1e-8;
@@ -19,30 +20,33 @@ AD TerminalNode::ad_eval(double x, double y, int dim) const {
         r.v = x; r.dx = 1.0; r.dy = 0.0; r.dxx = 0.0; r.dyy = 0.0;
     } else if (type == NodeType::VAR_Y) {
         r.v = y; r.dx = 0.0; r.dy = 1.0; r.dxx = 0.0; r.dyy = 0.0;
-    } else {
+    } else if (type == NodeType::ERC) {
         r.v = erc_val; r.dx = 0; r.dy = 0; r.dxx = 0; r.dyy = 0;
+    } else if (type == NodeType::CONST_I) {
+        r.v = I_COMPLEX; r.dx = 0; r.dy = 0; r.dxx = 0; r.dyy = 0;
     }
     return r;
 }
-double TerminalNode::eval(double x, double y) const { 
+Complex TerminalNode::eval(double x, double y) const { 
     if (type == NodeType::VAR_X) return x;
     if (type == NodeType::VAR_Y) return y;
-    return erc_val;
+    if (type == NodeType::ERC)   return erc_val;
+    if (type == NodeType::CONST_I) return I_COMPLEX;
+    return 0.0;
 }
 void TerminalNode::mutate_erc(std::mt19937& gen, double sigma) {
     if (type == NodeType::ERC) {
         std::uniform_real_distribution<double> prob(0.0, 1.0);
         if (prob(gen) < 0.15) { // 15% chance to "snap" to a canonical constant
-            static const double PI = std::acos(-1.0);
-            static const double E  = std::exp(1.0);
+            static const double PI_VAL = std::acos(-1.0);
+            static const double E_VAL  = std::exp(1.0);
             
-            // Candidates: Nearest integer, half-integer, PI, and e
-            double v = erc_val;
+            double v = erc_val.real();
             std::vector<double> candidates = {
                 std::round(v),           // Integer
                 std::round(v * 2.0)/2.0, // Half-integer
-                PI, -PI, PI/2.0, -PI/2.0,
-                E,  -E
+                PI_VAL, -PI_VAL, PI_VAL/2.0, -PI_VAL/2.0,
+                E_VAL,  -E_VAL
             };
             
             double best_c = candidates[0];
@@ -53,7 +57,7 @@ void TerminalNode::mutate_erc(std::mt19937& gen, double sigma) {
                     best_c = c;
                 }
             }
-            erc_val = best_c;
+            erc_val = Complex(best_c, 0.0);
         } else {
             // Normal Gaussian mutation
             std::normal_distribution<double> d(0.0, sigma);
@@ -64,24 +68,29 @@ void TerminalNode::mutate_erc(std::mt19937& gen, double sigma) {
 void TerminalNode::print(std::ostream& os) const {
     if (type == NodeType::VAR_X) os << "x";
     else if (type == NodeType::VAR_Y) os << "y";
-    else os << erc_val;
+    else if (type == NodeType::ERC) os << erc_val.real();
+    else if (type == NodeType::CONST_I) os << "i";
 }
 void TerminalNode::print_latex(std::ostream& os) const {
     if (type == NodeType::VAR_X) os << "x";
     else if (type == NodeType::VAR_Y) os << "y";
+    else if (type == NodeType::CONST_I) os << "i";
     else {
-        static const double PI = std::acos(-1.0);
-        static const double E  = std::exp(1.0);
-        double v = erc_val;
+        static const double PI_VAL = std::acos(-1.0);
+        static const double E_VAL  = std::exp(1.0);
+        double v = erc_val.real();
         double eps = 1e-6;
         
-        if (std::abs(v - PI) < eps) os << "\\pi";
-        else if (std::abs(v + PI) < eps) os << "-\\pi";
-        else if (std::abs(v - PI/2.0) < eps) os << "\\frac{\\pi}{2}";
-        else if (std::abs(v + PI/2.0) < eps) os << "-\\frac{\\pi}{2}";
-        else if (std::abs(v - E) < eps) os << "e";
-        else if (std::abs(v + E) < eps) os << "-e";
-        else os << erc_val;
+        if (std::abs(v - PI_VAL) < eps) os << "\\pi";
+        else if (std::abs(v + PI_VAL) < eps) os << "-\\pi";
+        else if (std::abs(v - PI_VAL/2.0) < eps) os << "\\frac{\\pi}{2}";
+        else if (std::abs(v + PI_VAL/2.0) < eps) os << "-\\frac{\\pi}{2}";
+        else if (std::abs(v - E_VAL) < eps) os << "e";
+        else if (std::abs(v + E_VAL) < eps) os << "-e";
+        else {
+            if (std::abs(erc_val.imag()) < 1e-9) os << erc_val.real();
+            else os << erc_val;
+        }
     }
 }
 
@@ -90,19 +99,24 @@ AD UnaryNode::ad_eval(double x, double y, int dim) const {
     AD r;
     AD C = child->ad_eval(x, y, dim);
     if (type == NodeType::SIN) {
-        double s = std::sin(C.v), c = std::cos(C.v);
+        Complex s = std::sin(C.v), c = std::cos(C.v);
         r.v = s; r.dx = c * C.dx; r.dxx = c*C.dxx - s*C.dx*C.dx;
         if (dim == 2) {
             r.dy = c * C.dy; r.dyy = c*C.dyy - s*C.dy*C.dy;
         }
     } else if (type == NodeType::COS) {
-        double s = std::sin(C.v), c = std::cos(C.v);
+        Complex s = std::sin(C.v), c = std::cos(C.v);
         r.v = c; r.dx = -s * C.dx; r.dxx = -s*C.dxx - c*C.dx*C.dx;
         if (dim == 2) {
             r.dy = -s * C.dy; r.dyy = -s*C.dyy - c*C.dy*C.dy;
         }
     } else if (type == NodeType::EXP) {
-        double ev = std::exp(std::min(C.v, EXP_CLAMP));
+        // Clamp real part to prevent overflow: exp(30) is enough for any PDE
+        Complex clamped_v = C.v;
+        if (clamped_v.real() > 30.0) clamped_v = Complex(30.0, clamped_v.imag());
+        if (clamped_v.real() < -30.0) clamped_v = Complex(-30.0, clamped_v.imag());
+
+        Complex ev = std::exp(clamped_v);
         r.v = ev; r.dx = ev * C.dx; r.dxx = ev * (C.dxx + C.dx*C.dx);
         if (dim == 2) {
             r.dy = ev * C.dy; r.dyy = ev * (C.dyy + C.dy*C.dy);
@@ -114,25 +128,34 @@ AD UnaryNode::ad_eval(double x, double y, int dim) const {
             r.dy = 2.0 * C.v * C.dy; r.dyy = 2.0 * (C.dy * C.dy + C.v * C.dyy);
         }
     } else if (type == NodeType::SINH) {
-        double sh = std::sinh(C.v), ch = std::cosh(C.v);
+        Complex sh = std::sinh(C.v), ch = std::cosh(C.v);
         r.v = sh; r.dx = ch * C.dx; r.dxx = ch*C.dxx + sh*C.dx*C.dx;
         if (dim == 2) { r.dy = ch * C.dy; r.dyy = ch*C.dyy + sh*C.dy*C.dy; }
     } else if (type == NodeType::COSH) {
-        double sh = std::sinh(C.v), ch = std::cosh(C.v);
+        Complex sh = std::sinh(C.v), ch = std::cosh(C.v);
         r.v = ch; r.dx = sh * C.dx; r.dxx = sh*C.dxx + ch*C.dx*C.dx;
         if (dim == 2) { r.dy = sh * C.dy; r.dyy = sh*C.dyy + ch*C.dy*C.dy; }
     }
     return r;
 }
-double UnaryNode::eval(double x, double y) const { 
-    double v = child->eval(x, y);
+Complex UnaryNode::eval(double x, double y) const { 
+    Complex v = child->eval(x, y);
     if (type == NodeType::SIN) return std::sin(v);
     if (type == NodeType::COS) return std::cos(v);
-    if (type == NodeType::EXP) return std::exp(std::min(v, EXP_CLAMP));
+    if (type == NodeType::EXP) {
+        double re = std::clamp(v.real(), -30.0, 30.0);
+        return std::exp(Complex(re, v.imag()));
+    }
     if (type == NodeType::SQR) return v * v;
-    if (type == NodeType::SINH) return std::sinh(v);
-    if (type == NodeType::COSH) return std::cosh(v);
-    return 0;
+    if (type == NodeType::SINH) {
+        double re = std::clamp(v.real(), -30.0, 30.0);
+        return std::sinh(Complex(re, v.imag()));
+    }
+    if (type == NodeType::COSH) {
+        double re = std::clamp(v.real(), -30.0, 30.0);
+        return std::cosh(Complex(re, v.imag()));
+    }
+    return 0.0;
 }
 void UnaryNode::print(std::ostream& os) const {
     if (type == NodeType::SIN) os << "sin(";
@@ -179,26 +202,26 @@ AD BinaryNode::ad_eval(double x, double y, int dim) const {
         if (std::abs(R.v) < 1e-6) {
             r.v = 1.0; r.dx = 0; r.dy = 0; r.dxx = 0; r.dyy = 0;
         } else {
-            double R2 = R.v * R.v;
+            Complex R2 = R.v * R.v;
             r.v   = L.v / R.v;
             r.dx  = (L.dx * R.v - L.v * R.dx) / R2;
             r.dxx = (L.dxx * R.v - L.v * R.dxx) / R2 - 2.0 * R.dx * (L.dx * R.v - L.v * R.dx) / (R2 * R.v);
             if (dim == 2) {
-                r.dy  = (L.dy * R.v - L.v * R.dy) / R2;
-                r.dyy = (L.dyy * R.v - L.v * R.dyy) / R2 - 2.0 * R.dy * (L.dy * R.v - L.v * R.dy) / (R2 * R.v);
+                r.dy  = (std::abs(R.v) < 1e-8) ? 0.0 : (L.dy * R.v - L.v * R.dy) / R2;
+                r.dyy = (std::abs(R.v) < 1e-8) ? 0.0 : (L.dyy * R.v - L.v * R.dyy) / R2 - 2.0 * R.dy * (L.dy * R.v - L.v * R.dy) / (R2 * R.v);
             }
         }
     }
     return r;
 }
-double BinaryNode::eval(double x, double y) const { 
-    double lv = left->eval(x, y);
-    double rv = right->eval(x, y);
+Complex BinaryNode::eval(double x, double y) const { 
+    Complex lv = left->eval(x, y);
+    Complex rv = right->eval(x, y);
     if (type == NodeType::ADD) return lv + rv;
     if (type == NodeType::SUB) return lv - rv;
     if (type == NodeType::MUL) return lv * rv;
-    if (type == NodeType::DIV) return (std::abs(rv) < 1e-6) ? 1.0 : lv / rv;
-    return 0;
+    if (type == NodeType::DIV) return (std::abs(rv) < 1e-8) ? 1.0 : lv / rv;
+    return 0.0;
 }
 void BinaryNode::print(std::ostream& os) const {
     os << "(";
@@ -226,7 +249,8 @@ void BinaryNode::print_latex(std::ostream& os) const {
 
 // ─── Constructores ───────────────────────────────────────────────────────────
 NodePtr make_var(char v) { return std::make_unique<TerminalNode>(v == 'x' ? NodeType::VAR_X : NodeType::VAR_Y); }
-NodePtr make_erc(double val) { return std::make_unique<TerminalNode>(NodeType::ERC, val); }
+NodePtr make_erc(Complex val) { return std::make_unique<TerminalNode>(NodeType::ERC, val); }
+NodePtr make_const_i() { return std::make_unique<TerminalNode>(NodeType::CONST_I); }
 NodePtr make_binary(NodeType op, NodePtr l, NodePtr r) { 
     auto node = std::make_unique<BinaryNode>(op, std::move(l), std::move(r));
     return node->simplify();
@@ -247,11 +271,12 @@ NodePtr random_tree(int max_depth, std::mt19937& gen, bool force_terminal) {
 
     bool terminal = force_terminal || (max_depth <= 0) || (ud(gen) < 0.30);
     if (terminal) {
-        std::uniform_int_distribution<int> ti(0, 2);
+        std::uniform_int_distribution<int> ti(0, 3);
         int choice = ti(gen);
         if (choice == 0) return make_var('x');
         if (choice == 1) return make_var('y');
-        return make_erc(erc_dist(gen));
+        if (choice == 2) return make_erc(erc_dist(gen));
+        return std::make_unique<TerminalNode>(NodeType::CONST_I);
     }
 
     if (ud(gen) < 0.55) {
@@ -275,10 +300,11 @@ static NodePtr random_tree_restricted(int max_depth, std::mt19937& gen, const st
 
     if (max_depth <= 0 || ud(gen) < 0.3) {
         if (allowed_vars.empty()) return make_erc(erc_dist(gen));
-        std::uniform_int_distribution<int> vi(0, (int)allowed_vars.size());
+        std::uniform_int_distribution<int> vi(0, (int)allowed_vars.size() + 1);
         int c = vi(gen);
         if (c < (int)allowed_vars.size()) return std::make_unique<TerminalNode>(allowed_vars[c]);
-        return make_erc(erc_dist(gen));
+        if (c == (int)allowed_vars.size()) return make_erc(erc_dist(gen));
+        return std::make_unique<TerminalNode>(NodeType::CONST_I);
     }
 
     if (ud(gen) < 0.6) {
@@ -291,62 +317,125 @@ static NodePtr random_tree_restricted(int max_depth, std::mt19937& gen, const st
     }
 }
 
-NodePtr random_tree_special(int max_depth, std::mt19937& gen, int dim) {
-    std::uniform_int_distribution<int> arch_dist(0, 4);
-    int archetype = arch_dist(gen);
+NodePtr random_tree_special(int max_depth, std::mt19937& gen, const PDEProblem& prob) {
+    std::uniform_real_distribution<double> ud(0, 1);
+    int dim = prob.dim;
 
-    if (dim == 1) {
-        // En 1D: Paridad f(x^2), Gaussiana o Separabilidad
-        double p = std::uniform_real_distribution<double>(0,1)(gen);
-        if (p < 0.33) {
-             auto x2 = make_binary(NodeType::MUL, make_var('x'), make_var('x'));
-             return make_unary(NodeType::SIN, make_binary(NodeType::MUL, make_erc(1.0), std::move(x2))); 
-        } else if (p < 0.66) {
-             auto dx = make_binary(NodeType::SUB, make_var('x'), make_erc(0.5));
-             auto dx2 = make_binary(NodeType::MUL, std::move(dx), make_binary(NodeType::SUB, make_var('x'), make_erc(0.5)));
-             return make_unary(NodeType::EXP, make_binary(NodeType::MUL, make_erc(-1.0), std::move(dx2)));
-        } else {
-             return random_tree_restricted(max_depth, gen, {NodeType::VAR_X});
+    // Arquetipo: Gaussiana centrada P(x,y)*exp(-a*r^2)
+    auto make_gaussian = [&](double sigma_val) {
+        auto dx = make_binary(NodeType::SUB, make_var('x'), make_erc(0.5));
+        auto r2 = make_binary(NodeType::MUL, dx->clone(), dx->clone());
+        if (dim == 2) {
+            auto dy = make_binary(NodeType::SUB, make_var('y'), make_erc(0.5));
+            auto y2 = make_binary(NodeType::MUL, dy->clone(), dy->clone());
+            r2 = make_binary(NodeType::ADD, std::move(r2), std::move(y2));
+        }
+        auto exponent = make_binary(NodeType::MUL, make_erc(-sigma_val), std::move(r2));
+        auto gauss = make_unary(NodeType::EXP, std::move(exponent));
+        auto poly = (ud(gen) < 0.5) ? make_var('x') : make_erc(1.0);
+        return make_binary(NodeType::MUL, std::move(poly), std::move(gauss));
+    };
+
+    // Arquetipo: Separación de variables sin(kx)*sinh(ky)
+    auto make_sep_vars = [&]() {
+        auto sx = make_unary(NodeType::SIN, make_binary(NodeType::MUL, make_erc(3.1415), make_var('x')));
+        if (dim == 1) return sx;
+        auto sy = make_unary(NodeType::SINH, make_binary(NodeType::MUL, make_erc(1.0), make_var('y')));
+        return make_binary(NodeType::MUL, std::move(sx), std::move(sy));
+    };
+
+    // Arquetipo: Polinomio de Taylor aleatorio
+    auto make_poly = [&]() {
+        auto x = make_var('x');
+        auto x2 = make_binary(NodeType::MUL, x->clone(), x->clone());
+        auto term1 = make_binary(NodeType::MUL, make_erc(ud(gen)*2-1), std::move(x));
+        auto term2 = make_binary(NodeType::MUL, make_erc(ud(gen)*2-1), std::move(x2));
+        return make_binary(NodeType::ADD, std::move(term1), std::move(term2));
+    };
+
+    // Arquetipo: Función Racional P(x)/Q(x)
+    auto make_rational = [&]() {
+        return make_binary(NodeType::DIV, make_poly(), make_binary(NodeType::ADD, make_erc(1.0), make_unary(NodeType::SQR, make_var('x'))));
+    };
+
+    // --- Inyección de Soluciones Analíticas Conocidas (Seed de alta calidad) ---
+    // Las constantes son ERCs LIBRES en un rango razonable: el optimizador
+    // (QR + hill-climbing) encontrará el valor exacto (π, 2π, etc.) sin
+    // necesitar nodos extra en el árbol.
+    static const double PI_VAL = std::acos(-1.0);
+    // ERC libre en [0.5, 4π] — cubre π, 2π, 3π sin sesgo
+    std::uniform_real_distribution<double> free_k(0.5, 4.0 * PI_VAL);
+    auto free_erc = [&]() { return make_erc(free_k(gen)); };
+
+    if (ud(gen) < 0.20) {
+        if (prob.type == PDE::LAPLACE) {
+            if (dim == 1) return make_var('x');
+            // sin(πx) * sinh(πy) / sinh(π)  — constantes como ERC ajustable
+            auto s_pi_x  = make_unary(NodeType::SIN,  make_binary(NodeType::MUL, free_erc(), make_var('x')));
+            auto sh_pi_y = make_unary(NodeType::SINH, make_binary(NodeType::MUL, free_erc(), make_var('y')));
+            return make_binary(NodeType::MUL, std::move(s_pi_x),
+                               make_binary(NodeType::MUL, make_erc(1.0/11.5487), std::move(sh_pi_y)));
+        }
+        if (prob.type == PDE::POISSON || prob.type == PDE::HELMHOLTZ) {
+            auto s_pi_x = make_unary(NodeType::SIN, make_binary(NodeType::MUL, free_erc(), make_var('x')));
+            if (dim == 1) return s_pi_x;
+            auto s_pi_y = make_unary(NodeType::SIN, make_binary(NodeType::MUL, free_erc(), make_var('y')));
+            return make_binary(NodeType::MUL, std::move(s_pi_x), std::move(s_pi_y));
+        }
+        if (prob.type == PDE::SCHRODINGER) {
+            if (dim == 1) {
+                // exp(i * π * x)  — π como ERC ajustable
+                auto i_pi_x = make_binary(NodeType::MUL, make_const_i(),
+                                make_binary(NodeType::MUL, free_erc(), make_var('x')));
+                return make_unary(NodeType::EXP, std::move(i_pi_x));
+            } else {
+                auto i_pi_xy = make_binary(NodeType::MUL, make_const_i(),
+                                 make_binary(NodeType::MUL, free_erc(),
+                                   make_binary(NodeType::ADD, make_var('x'), make_var('y'))));
+                return make_unary(NodeType::EXP, std::move(i_pi_xy));
+            }
+        }
+        if (prob.type == PDE::HARMONIC_OSCILLATOR) {
+            // u = Hermite * Gaussiana: H_0 * exp(-x^2/2) = exp(-a*x^2)
+            std::normal_distribution<double> perturb(0.0, 0.05);
+            auto exp_arg = make_binary(NodeType::MUL,
+                               make_erc(-0.5 + perturb(gen)),
+                               make_binary(NodeType::MUL, make_var('x'), make_var('x')));
+            return make_unary(NodeType::EXP, std::move(exp_arg));
+        }
+        if (prob.type == PDE::AIRY) {
+            // Aproximación: Ai(x) ~ exp(-2/3 * x^(3/2)) para x>0
+            // Aproximamos como exp(-a * x * sqrt(x))
+            std::normal_distribution<double> perturb(0.0, 0.05);
+            auto x_sq = make_unary(NodeType::SQR, make_var('x'));
+            auto x15  = make_binary(NodeType::MUL, make_var('x'), std::move(x_sq));
+            auto arg  = make_binary(NodeType::MUL, make_erc(-0.6667 + perturb(gen)), std::move(x15));
+            return make_unary(NodeType::EXP, std::move(arg));
         }
     }
 
-    // Archetypes for 2D
-    if (archetype == 0) { // Altamente Separable: f(x) * g(y)
-        auto fx = random_tree_restricted(max_depth - 1, gen, {NodeType::VAR_X});
-        auto gy = random_tree_restricted(max_depth - 1, gen, {NodeType::VAR_Y});
-        return make_binary(NodeType::MUL, std::move(fx), std::move(gy));
-    } 
-    else if (archetype == 1) { // Radial Puro: exp(-a*( (x-0.5)^2 + (y-0.5)^2 ))
-        auto dx = make_binary(NodeType::SUB, make_var('x'), make_erc(0.5));
-        auto dy = make_binary(NodeType::SUB, make_var('y'), make_erc(0.5));
-        auto r2 = make_binary(NodeType::ADD, make_binary(NodeType::MUL, dx->clone(), dx->clone()), 
-                                              make_binary(NodeType::MUL, dy->clone(), dy->clone()));
-        return make_unary(NodeType::EXP, make_binary(NodeType::MUL, make_erc(-1.0), std::move(r2)));
-    } 
-    else if (archetype == 2) { // Simetría Par: f(x^2) + g(y^2)
-        auto x2 = make_binary(NodeType::MUL, make_var('x'), make_var('x'));
-        auto y2 = make_binary(NodeType::MUL, make_var('y'), make_var('y'));
-        return make_binary(NodeType::ADD, make_unary(NodeType::SIN, std::move(x2)), 
-                                          make_unary(NodeType::SIN, std::move(y2)));
+    // Selección de arquetipo según el problema
+    if (prob.type == PDE::HARMONIC_OSCILLATOR || prob.type == PDE::SCHRODINGER) {
+        if (ud(gen) < 0.7) return make_gaussian(ud(gen) * 2.0 + 0.5);
+        return make_binary(NodeType::MUL, make_poly(), make_gaussian(1.0)); // P(x)*exp(-r^2)
     }
-    else if (archetype == 3) { // Productos Sinusoidales: sin(ax)*sin(by)
-        auto sx = make_unary(NodeType::SIN, make_binary(NodeType::MUL, make_erc(3.14159), make_var('x')));
-        auto sy = make_unary(NodeType::SIN, make_binary(NodeType::MUL, make_erc(3.14159), make_var('y')));
-        return make_binary(NodeType::MUL, std::move(sx), std::move(sy));
+    if (prob.type == PDE::LAPLACE || prob.type == PDE::POISSON || prob.type == PDE::HELMHOLTZ) {
+        if (ud(gen) < 0.5) return make_sep_vars();
+        return make_unary(NodeType::SIN, make_binary(NodeType::MUL, make_erc(3.1415), make_var('x')));
     }
-    else if (archetype == 4) { // Racional (1 / (1 + r^2)) para NonlinearPoisson
-         auto r2 = make_binary(NodeType::ADD, 
-                     make_binary(NodeType::MUL, make_var('x'), make_var('x')),
-                     make_binary(NodeType::MUL, make_var('y'), make_var('y')));
-         return make_binary(NodeType::DIV, make_erc(1.0), 
-                     make_binary(NodeType::ADD, make_erc(1.0), std::move(r2)));
+    if (prob.type == PDE::AIRY) {
+        if (ud(gen) < 0.5) {
+            auto x_pow = make_binary(NodeType::MUL, make_var('x'), make_unary(NodeType::SQR, make_var('x')));
+            return make_unary(NodeType::EXP, make_binary(NodeType::MUL, make_erc(-0.66), std::move(x_pow)));
+        }
+        return make_rational();
     }
-    else { // Polinómico base: a*x + b*y + c*x*y
-        auto term1 = make_binary(NodeType::MUL, make_erc(1.0), make_var('x'));
-        auto term2 = make_binary(NodeType::MUL, make_erc(1.0), make_var('y'));
-        auto term3 = make_binary(NodeType::MUL, make_erc(1.0), make_binary(NodeType::MUL, make_var('x'), make_var('y')));
-        return make_binary(NodeType::ADD, std::move(term1), make_binary(NodeType::ADD, std::move(term2), std::move(term3)));
-    }
+
+    double p = ud(gen);
+    if (p < 0.25) return make_gaussian(1.0);
+    if (p < 0.50) return make_sep_vars();
+    if (p < 0.75) return make_poly();
+    return make_rational();
 }
 
 // ─── Homologous Crossover (Cruce Homólogo Estructural) ───────────────────────
@@ -447,10 +536,10 @@ NodePtr UnaryNode::simplify() const {
     
     // Constant folding
     if (s_child->get_type() == NodeType::ERC) {
-        double val = dynamic_cast<TerminalNode*>(s_child.get())->erc_val;
+        Complex val = dynamic_cast<TerminalNode*>(s_child.get())->erc_val;
         if (type == NodeType::SIN) return make_erc(std::sin(val));
         if (type == NodeType::COS) return make_erc(std::cos(val));
-        if (type == NodeType::EXP) return make_erc(std::exp(std::min(val, 30.0)));
+        if (type == NodeType::EXP) return make_erc(std::exp(val));
         if (type == NodeType::SQR) return make_erc(val * val);
         if (type == NodeType::SINH) return make_erc(std::sinh(val));
         if (type == NodeType::COSH) return make_erc(std::cosh(val));
@@ -458,13 +547,13 @@ NodePtr UnaryNode::simplify() const {
 
     // Special cases for functions at 0
     if (s_child->get_type() == NodeType::ERC) {
-        double val = dynamic_cast<TerminalNode*>(s_child.get())->erc_val;
+        Complex val = dynamic_cast<TerminalNode*>(s_child.get())->erc_val;
         if (std::abs(val) < 1e-9) {
-            if (type == NodeType::SIN) return make_erc(0);
-            if (type == NodeType::COS) return make_erc(1);
-            if (type == NodeType::EXP) return make_erc(1);
-            if (type == NodeType::SINH) return make_erc(0);
-            if (type == NodeType::COSH) return make_erc(1);
+            if (type == NodeType::SIN) return make_erc(0.0);
+            if (type == NodeType::COS) return make_erc(1.0);
+            if (type == NodeType::EXP) return make_erc(1.0);
+            if (type == NodeType::SINH) return make_erc(0.0);
+            if (type == NodeType::COSH) return make_erc(1.0);
         }
     }
 
@@ -477,8 +566,8 @@ NodePtr BinaryNode::simplify() const {
     
     bool l_erc = (s_l->get_type() == NodeType::ERC);
     bool r_erc = (s_r->get_type() == NodeType::ERC);
-    double lv = l_erc ? dynamic_cast<TerminalNode*>(s_l.get())->erc_val : 0;
-    double rv = r_erc ? dynamic_cast<TerminalNode*>(s_r.get())->erc_val : 0;
+    Complex lv = l_erc ? dynamic_cast<TerminalNode*>(s_l.get())->erc_val : 0.0;
+    Complex rv = r_erc ? dynamic_cast<TerminalNode*>(s_r.get())->erc_val : 0.0;
 
     // Constant folding
     if (l_erc && r_erc) {
@@ -491,8 +580,8 @@ NodePtr BinaryNode::simplify() const {
     
     // Identities
     if (type == NodeType::ADD) {
-        if (l_erc && lv == 0) return s_r;
-        if (r_erc && rv == 0) return s_l;
+        if (l_erc && std::abs(lv) < 1e-9) return s_r;
+        if (r_erc && std::abs(rv) < 1e-9) return s_l;
         
         // Identity: sin^2(x) + cos^2(x) = 1
         const Node* arg_sin_l = get_arg_of_square(s_l.get(), NodeType::SIN);
@@ -504,8 +593,8 @@ NodePtr BinaryNode::simplify() const {
         if (arg_cos_l && arg_sin_r && is_structurally_equal(arg_cos_l, arg_sin_r)) return make_erc(1.0);
     }
     if (type == NodeType::SUB) {
-        if (r_erc && rv == 0) return s_l;
-        if (is_structurally_equal(s_l.get(), s_r.get())) return make_erc(0);
+        if (r_erc && std::abs(rv) < 1e-9) return s_l;
+        if (is_structurally_equal(s_l.get(), s_r.get())) return make_erc(0.0);
 
         // Identity: cosh^2(x) - sinh^2(x) = 1
         const Node* arg_cosh_l = get_arg_of_square(s_l.get(), NodeType::COSH);
@@ -513,31 +602,30 @@ NodePtr BinaryNode::simplify() const {
         if (arg_cosh_l && arg_sinh_r && is_structurally_equal(arg_cosh_l, arg_sinh_r)) return make_erc(1.0);
     }
     if (type == NodeType::MUL) {
-        if (l_erc && lv == 0) return make_erc(0);
-        if (l_erc && std::abs(lv) < 1e-9) return make_erc(0);
-        if (r_erc && std::abs(rv) < 1e-9) return make_erc(0);
+        if (l_erc && std::abs(lv) < 1e-9) return make_erc(0.0);
+        if (r_erc && std::abs(rv) < 1e-9) return make_erc(0.0);
         if (l_erc && std::abs(lv - 1.0) < 1e-9) return s_r;
         if (r_erc && std::abs(rv - 1.0) < 1e-9) return s_l;
     }
     if (type == NodeType::DIV) {
-        if (l_erc && std::abs(lv) < 1e-9) return make_erc(0);
+        if (l_erc && std::abs(lv) < 1e-9) return make_erc(0.0);
         if (r_erc && std::abs(rv - 1.0) < 1e-9) return s_l;
-        if (is_structurally_equal(s_l.get(), s_r.get())) return make_erc(1);
+        if (is_structurally_equal(s_l.get(), s_r.get())) return make_erc(1.0);
     }
 
     return std::make_unique<BinaryNode>(type, std::move(s_l), std::move(s_r));
 }
 
 // ─── Laplaciano por diferencias finitas (Koza) ────────────────────────────────
-double fd_laplacian(const NodePtr& tree, double x, double y, int dim, double h) {
-    double v   = tree->eval(x,   y);
-    double vxp = tree->eval(x+h, y);
-    double vxm = tree->eval(x-h, y);
-    double dxx = (vxp - 2.0*v + vxm) / (h*h);
+Complex fd_laplacian(const NodePtr& tree, double x, double y, int dim, double h) {
+    Complex v   = tree->eval(x,   y);
+    Complex vxp = tree->eval(x+h, y);
+    Complex vxm = tree->eval(x-h, y);
+    Complex dxx = (vxp - 2.0*v + vxm) / (h*h);
     if (dim == 1) return dxx;
-    double vyp = tree->eval(x,   y+h);
-    double vym = tree->eval(x,   y-h);
-    double dyy = (vyp - 2.0*v + vym) / (h*h);
+    Complex vyp = tree->eval(x,   y+h);
+    Complex vym = tree->eval(x,   y-h);
+    Complex dyy = (vyp - 2.0*v + vym) / (h*h);
     return dxx + dyy;
 }
 
@@ -546,13 +634,13 @@ static double calculate_mse_simple(const NodePtr& tree, const PDEProblem& prob, 
     double sum_dom = 0.0;
     for (auto& p : dom) {
         AD ad = tree->ad_eval(p.x, p.y, prob.dim);
-        double res = prob.pde_residual_ad(ad, p.x, p.y);
-        sum_dom += res * res;
+        Complex res = prob.pde_residual_ad(ad, p.x, p.y);
+        sum_dom += std::norm(res);
     }
     double sum_bnd = 0.0;
     for (auto& p : bnd) {
-        double diff = tree->eval(p.x, p.y) - prob.bc(p.x, p.y);
-        sum_bnd += diff * diff;
+        Complex diff = tree->eval(p.x, p.y) - prob.bc(p.x, p.y);
+        sum_bnd += std::norm(diff);
     }
     return (sum_dom / dom.size()) + (sum_bnd / bnd.size());
 }
@@ -564,7 +652,7 @@ NodePtr TerminalNode::prune_recursive(const PDEProblem& prob, const std::vector<
 NodePtr UnaryNode::prune_recursive(const PDEProblem& prob, const std::vector<Point>& dom, const std::vector<Point>& bnd, double original_mse, double tolerance) {
     auto new_child = child->prune_recursive(prob, dom, bnd, original_mse, tolerance);
     auto current_node = std::make_unique<UnaryNode>(type, std::move(new_child));
-    double v0 = current_node->eval(0.5, 0.5);
+    Complex v0 = current_node->eval(0.5, 0.5);
     NodePtr const_node = std::make_unique<TerminalNode>(NodeType::ERC, v0);
     double new_mse = calculate_mse_simple(const_node, prob, dom, bnd);
     if (new_mse <= original_mse * (1.0 + tolerance)) return const_node;
@@ -575,7 +663,7 @@ NodePtr BinaryNode::prune_recursive(const PDEProblem& prob, const std::vector<Po
     auto new_l = left->prune_recursive(prob, dom, bnd, original_mse, tolerance);
     auto new_r = right->prune_recursive(prob, dom, bnd, original_mse, tolerance);
     auto current_node = std::make_unique<BinaryNode>(type, std::move(new_l), std::move(new_r));
-    double v0 = current_node->eval(0.5, 0.5);
+    Complex v0 = current_node->eval(0.5, 0.5);
     NodePtr const_node = std::make_unique<TerminalNode>(NodeType::ERC, v0);
     double new_mse = calculate_mse_simple(const_node, prob, dom, bnd);
     if (new_mse <= original_mse * (1.0 + tolerance)) return const_node;

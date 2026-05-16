@@ -8,6 +8,7 @@
 #include "common.hpp"
 #include <vector>
 #include <algorithm>
+#include <map>
 
 // ─── Clasificación no dominada ────────────────────────────────────────────────
 // Asigna rank y devuelve los frentes F1, F2, …
@@ -75,7 +76,7 @@ void crowding_distance_assignment(std::vector<Ind>& pop,
     // Reset
     for (int i : front) pop[i].crowding = 0.0;
 
-    // Para cada objetivo
+    // Para cada objetivo (Domain MSE, Boundary MSE, Tree Size)
     auto assign_obj = [&](auto getter) {
         std::vector<int> sorted = front;
         std::sort(sorted.begin(), sorted.end(),
@@ -91,6 +92,19 @@ void crowding_distance_assignment(std::vector<Ind>& pop,
     assign_obj([](const Ind& i){ return i.mse_domain;   });
     assign_obj([](const Ind& i){ return i.mse_boundary; });
     assign_obj([](const Ind& i){ return (double)i.tree_size; });
+
+    // ─── Bono de Diversidad Estructural (Niching) ───
+    // Calculamos la frecuencia de cada tipo de raíz en este frente
+    std::map<NodeType, int> counts;
+    for (int i : front) counts[pop[i].root_type]++;
+    
+    for (int i : front) {
+        if (pop[i].crowding < 1e15) { // No tocar los bordes del frente
+            double frequency = (double)counts[pop[i].root_type] / sz;
+            // Bonus Agresivo: penaliza fuertemente la uniformidad estructural
+            pop[i].crowding *= (1.0 + 2.0 / (frequency + 0.05));
+        }
+    }
 }
 
 // ─── Comparador NSGA-II (rank y crowding) ────────────────────────────────────

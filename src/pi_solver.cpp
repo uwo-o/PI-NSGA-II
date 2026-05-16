@@ -4,6 +4,7 @@
 
 #include "pi_solver.hpp"
 #include "nsga2.hpp"
+#include "numerical_solver.hpp"
 #include <iostream>
 #include <algorithm>
 #include <cmath>
@@ -11,42 +12,39 @@
 
 // ─── PIIndividual::evaluate ───────────────────────────────────────────────────
 void PIIndividual::evaluate(const PDEProblem& prob, 
-                         const std::vector<Point>& dom, 
-                         const std::vector<Point>& bnd) 
+                          const std::vector<Point>& dom, 
+                          const std::vector<Point>& bnd) 
 {
-    if (!tree) return;
-    tree_size = tree->count_nodes();
-
-    // 1. Residuo PDE (Domain) - Usa AD con dimensión optimizada
-    double sum_dom = 0.0;
-    double total_w = 0.0;
-    int dim = prob.dim;
+    if (!tree) { mse_domain = 1e18; mse_boundary = 1e18; return; }
+    
+    double pde_mse = 0.0;
     for (auto& p : dom) {
-        AD ad = tree->ad_eval(p.x, p.y, dim);
-        double res = prob.pde_residual_ad(ad, p.x, p.y);
-        if (!std::isfinite(res)) { mse_domain = 1e10; mse_boundary = 1e10; return; }
-        
-        double dist = std::min({p.x, 1.0-p.x, p.y, 1.0-p.y});
-        double weight = 1.0 / (dist + 0.1); 
-        sum_dom += weight * res * res;
-        total_w += weight;
+        AD ad = tree->ad_eval(p.x, p.y, prob.dim);
+        Complex res = prob.pde_residual_ad(ad, p.x, p.y);
+        if (!std::isfinite(res.real()) || !std::isfinite(res.imag())) {
+            mse_domain = 1e18; mse_boundary = 1e18; return;
+        }
+        pde_mse += std::norm(res); 
     }
-    double pde_mse = (sum_dom / total_w); 
+    if (!dom.empty()) pde_mse /= dom.size();
 
-    // 2. MSE Frontera Estándar - Usa eval() rápido (sin derivadas)
-    double sum_bnd = 0.0;
+    double raw_bc_mse = 0.0;
     for (auto& p : bnd) {
-        double u_val = tree->eval(p.x, p.y);
-        double bc_val = prob.bc(p.x, p.y);
-        double diff = u_val - bc_val;
-        if (!std::isfinite(diff)) { mse_boundary = 1e10; return; }
-        sum_bnd += diff * diff;
+        Complex val = tree->eval(p.x, p.y);
+        Complex bc_val = prob.bc(p.x, p.y);
+        Complex diff = val - bc_val;
+        if (!std::isfinite(diff.real()) || !std::isfinite(diff.imag())) {
+            mse_domain = 1e18; mse_boundary = 1e18; return;
+        }
+        raw_bc_mse += std::norm(diff);
     }
-    double raw_bc_mse = sum_bnd / (double)bnd.size();
+    if (!bnd.empty()) raw_bc_mse /= bnd.size();
 
-    double alpha = Config::PI_ALPHA;
-    double beta  = 1.0 - alpha;
+    tree_size = tree->count_nodes();
+    root_type = tree->get_type();
 
+    double alpha = 20.0; 
+    double beta = 1.0;
     mse_domain = beta * pde_mse + alpha * raw_bc_mse; 
     mse_boundary = raw_bc_mse; 
 }
@@ -56,18 +54,54 @@ double PIIndividual::get_validation_mse(const PDEProblem& prob,
                                         const std::vector<Point>& val_bnd) 
 {
     if (!tree) return 1e18;
+    
+    // Si tenemos verdad numérica, comparamos contra ella (MSE directo)
+    if (prob.is_numerical && !prob.numerical_truth.empty()) {
+        double sum_val = 0.0;
+        int n_pts = 0;
+        if (prob.dim == 1) {
+            // Usar interpolación: nunca indexamos numerical_truth directamente
+            for (auto& pt : val_dom) {
+                Complex u_approx = tree->eval(pt.x, pt.y);
+                Complex u_exact  = prob.numerical_exact(pt.x, pt.y);
+                if (!std::isfinite(u_approx.real())) continue;
+                sum_val += std::norm(u_approx - u_exact);
+                ++n_pts;
+            }
+            return (n_pts > 0) ? sum_val / n_pts : 1e18;
+        } else {
+            int N = (int)std::sqrt(prob.numerical_truth.size());
+            double h = 1.0 / (N - 1);
+            for (int i = 0; i < N; ++i) {
+                for (int j = 0; j < N; ++j) {
+                    Complex val = tree->eval(i * h, j * h);
+                    if (!std::isfinite(val.real())) continue;
+                    sum_val += std::norm(val - prob.numerical_truth[i * N + j]);
+                    ++n_pts;
+                }
+            }
+            return (n_pts > 0) ? sum_val / n_pts : 1e18;
+        }
+    }
+
     double sum_dom = 0.0;
     for (auto& p : val_dom) {
         AD ad = tree->ad_eval(p.x, p.y, prob.dim);
-        double res = prob.pde_residual_ad(ad, p.x, p.y);
-        sum_dom += res * res;
+        Complex res = prob.pde_residual_ad(ad, p.x, p.y);
+        if (!std::isfinite(res.real()) || !std::isfinite(res.imag())) return 1e18;
+        sum_dom += std::norm(res);
     }
     double sum_bnd = 0.0;
     for (auto& p : val_bnd) {
-        double diff = tree->eval(p.x, p.y) - prob.bc(p.x, p.y);
-        sum_bnd += diff * diff;
+        Complex val = tree->eval(p.x, p.y);
+        Complex bc_val = prob.bc(p.x, p.y);
+        Complex diff = val - bc_val;
+        if (!std::isfinite(diff.real()) || !std::isfinite(diff.imag())) return 1e18;
+        sum_bnd += std::norm(diff);
     }
-    return (sum_dom / val_dom.size()) + (sum_bnd / val_bnd.size());
+    double r_dom = val_dom.empty() ? 0.0 : sum_dom / val_dom.size();
+    double r_bnd = val_bnd.empty() ? 0.0 : sum_bnd / val_bnd.size();
+    return r_dom + r_bnd;
 }
 
 // ─── PISolver ─────────────────────────────────────────────────────────────────
@@ -77,8 +111,8 @@ PISolver::PISolver(const PDEProblem& prob, unsigned seed)
     dom_pts_ = prob_.domain_points(Config::N_DOMAIN);
     bnd_pts_ = prob_.boundary_points(Config::N_BOUNDARY);
     int n_val = (prob.dim == 1) ? 200 : 400;
-    val_dom_pts_ = prob_.domain_points(n_val); 
-    val_bnd_pts_ = prob_.boundary_points(100);
+    val_dom_pts_ = prob_.domain_points(Config::N_DOMAIN);
+    val_bnd_pts_ = prob_.boundary_points(Config::N_BOUNDARY);
 }
 
 PIIndividual PISolver::random_individual() {
@@ -90,7 +124,7 @@ PIIndividual PISolver::random_individual() {
 
 PIIndividual PISolver::random_individual_special() {
     PIIndividual ind;
-    ind.tree = random_tree_special(Config::MAX_TREE_DEPTH, gen_, prob_.dim);
+    ind.tree = random_tree_special(Config::MAX_TREE_DEPTH, gen_, prob_);
     ind.evaluate(prob_, dom_pts_, bnd_pts_);
     // Refuerzo agresivo: 100 iteraciones de ajuste de constantes al nacer
     hill_climb_constants(ind, 100); 
@@ -159,7 +193,30 @@ std::vector<PIIndividual> PISolver::run(int pop_size, int max_gen) {
     for(int i=0; i<Config::N_BOUNDARY; ++i) bnd_pts_.push_back({dist(gen_), dist(gen_)});
 
     for (int g = 0; g < max_gen; ++g) {
-        // 1. Verificar Estancamiento
+        // 1. Regenerar Puntos Dinámicos cada 20 generaciones (EVITA TRAMPAS Y MEMORIZACIÓN)
+        if (g % 20 == 0) {
+            dom_pts_.clear();
+            bnd_pts_.clear();
+            
+            // Puntos de Dominio (Interior)
+            for(int i=0; i<Config::N_DOMAIN; ++i) dom_pts_.push_back({dist(gen_), dist(gen_)});
+            
+            // Puntos de Frontera (Bordes Reales: x=0, x=1, y=0, y=1)
+            int pts_per_side = Config::N_BOUNDARY / 4;
+            for(int i=0; i<pts_per_side; ++i) {
+                double t = dist(gen_);
+                bnd_pts_.push_back({0.0, t}); // Izquierda
+                bnd_pts_.push_back({1.0, t}); // Derecha
+                bnd_pts_.push_back({t, 0.0}); // Abajo
+                bnd_pts_.push_back({t, 1.0}); // Arriba
+            }
+            
+            // Re-evaluar población con la nueva "física"
+            for (auto& ind : population_) ind.evaluate(prob_, dom_pts_, bnd_pts_);
+        }
+
+        // 2. Hall of Fame y Estancamiento
+        update_hall_of_fame();
         if (has_best_ever_) {
             if (best_ever_.mse_domain < last_best_mse_ * 0.999) { // Mejora significativa (>0.1%)
                 last_best_mse_ = best_ever_.mse_domain;
@@ -252,7 +309,33 @@ std::vector<PIIndividual> PISolver::run(int pop_size, int max_gen) {
                       << "  (val_best=" << v_mse << ")" << std::defaultfloat << "\n";
         }
 
-        if (b_tot < Config::STOP_THRESHOLD) break;
+        // ── Condición de parada ───────────────────────────────────────────────
+        // Usamos el mejor MSE de ENTRENAMIENTO de la generación actual.
+        // best_ever_.mse_domain almacena la validación (útil para exportar),
+        // pero la parada debe basarse en el fitness de entrenamiento.
+        double stop_threshold = Config::STOP_THRESHOLD;
+        if (prob_.is_numerical) stop_threshold = 1e-4; // RK4 tiene error de discretización
+
+        // Parada A: fitness de entrenamiento bajo el umbral
+        if (current_best_train < stop_threshold) {
+            std::cout << "  [!] Convergencia alcanzada (MSE=" << current_best_train
+                      << "). Terminando en gen " << g << ".\n";
+            break;
+        }
+
+        // Parada B: ambos componentes esencialmente cero (solución perfecta)
+        double b_dom_cur = 1e18, b_bnd_cur = 1e18;
+        for (auto& ind : population_) {
+            if (ind.rank == 1) {
+                b_dom_cur = std::min(b_dom_cur, ind.mse_domain);
+                b_bnd_cur = std::min(b_bnd_cur, ind.mse_boundary);
+            }
+        }
+        if (b_dom_cur < 1e-12 && b_bnd_cur < 1e-12) {
+            std::cout << "  [!] Solución perfecta (dom=" << b_dom_cur
+                      << ", bnd=" << b_bnd_cur << "). Terminando en gen " << g << ".\n";
+            break;
+        }
     }
     return std::move(population_);
 }
@@ -275,41 +358,111 @@ std::vector<PIIndividual> PISolver::pareto_front() const {
     return front;
 }
 
+// ─── Solucionador de Mínimos Cuadrados vía Householder QR ──────────────────────
+static void solve_qr_internal(std::vector<std::vector<double>>& A, std::vector<double>& b, std::vector<double>& x) {
+    int m = (int)A.size();    
+    int n = (int)A[0].size(); 
+    
+    for (int k = 0; k < n; ++k) {
+        double norm = 0;
+        for (int i = k; i < m; ++i) norm += A[i][k] * A[i][k];
+        norm = std::sqrt(norm);
+        
+        double s = (A[k][k] > 0) ? -norm : norm;
+        double u1 = A[k][k] - s;
+        
+        std::vector<double> v(m, 0.0);
+        v[k] = 1.0;
+        for (int i = k + 1; i < m; ++i) {
+            A[i][k] /= u1;
+            v[i] = A[i][k];
+        }
+        A[k][k] = s;
+        double tau = -u1 / s;
+        
+        for (int j = k + 1; j < n; ++j) {
+            double sum = A[k][j];
+            for (int i = k + 1; i < m; ++i) sum += v[i] * A[i][j];
+            sum *= tau;
+            A[k][j] -= sum;
+            for (int i = k + 1; i < m; ++i) A[i][j] -= sum * v[i];
+        }
+        
+        double sum_b = b[k];
+        for (int i = k + 1; i < m; ++i) sum_b += v[i] * b[i];
+        sum_b *= tau;
+        b[k] -= sum_b;
+        for (int i = k + 1; i < m; ++i) b[i] -= sum_b * v[i];
+    }
+    
+    x.assign(n, 0.0);
+    for (int i = n - 1; i >= 0; --i) {
+        double sum = b[i];
+        for (int j = i + 1; j < n; ++j) sum -= A[i][j] * x[j];
+        if (std::abs(A[i][i]) > 1e-12) x[i] = sum / A[i][i];
+        else x[i] = 0.0;
+    }
+}
+
 void PISolver::hill_climb_constants(PIIndividual& ind, int iterations) {
     if (!ind.tree) return;
-    std::vector<double*> ercs;
+    std::vector<Complex*> ercs;
     ind.tree->collect_ercs(ercs);
     if (ercs.empty()) return;
+
+    int n_pts_mini = 40; 
+    std::vector<Point> mini_dom;
+    std::sample(dom_pts_.begin(), dom_pts_.end(), std::back_inserter(mini_dom), n_pts_mini, gen_);
     
-    // Optimización: Hill Climbing con Mini-Batch (Submuestreo)
-    // Usamos solo un 10% de los puntos para acelerar el ajuste de constantes
-    std::vector<Point> mini_dom, mini_bnd;
-    std::sample(dom_pts_.begin(), dom_pts_.end(), std::back_inserter(mini_dom), 40, gen_);
-    std::sample(bnd_pts_.begin(), bnd_pts_.end(), std::back_inserter(mini_bnd), 20, gen_);
+    const double epsilon = 1e-6;
+    int n_ercs = ercs.size();
+    int n_vars = n_ercs * 2; // Real e Imaginaria por cada ERC
 
-    std::normal_distribution<double> noise(0.0, Config::ERC_SIGMA);
-    std::uniform_int_distribution<int> select_erc(0, (int)ercs.size() - 1);
-
-    for (int i = 0; i < iterations; ++i) {
-        int idx_target = select_erc(gen_);
-        double old_val = *ercs[idx_target];
-
-        // Evaluación previa en mini-batch
-        ind.evaluate(prob_, mini_dom, mini_bnd);
-        double old_dom = ind.mse_domain;
-        double old_bnd = ind.mse_boundary;
-
-        *ercs[idx_target] += noise(gen_);
-        ind.evaluate(prob_, mini_dom, mini_bnd);
-
-        // Si el nuevo estado es dominado por el viejo (es peor), revertimos
-        bool old_dominates_new = (old_dom <= ind.mse_domain && old_bnd <= ind.mse_boundary) &&
-                                 (old_dom < ind.mse_domain  || old_bnd < ind.mse_boundary);
+    for (int iter = 0; iter < 2; ++iter) {
+        std::vector<std::vector<double>> J(n_pts_mini * 2, std::vector<double>(n_vars));
+        std::vector<double> r(n_pts_mini * 2);
         
-        if (old_dominates_new) {
-             *ercs[idx_target] = old_val;
+        for (int i = 0; i < n_pts_mini; ++i) {
+            Complex val_orig = ind.tree->eval(mini_dom[i].x, mini_dom[i].y);
+            Complex target = prob_.exact(mini_dom[i].x, mini_dom[i].y);
+            Complex residual = target - val_orig;
+            
+            if (!std::isfinite(residual.real()) || !std::isfinite(residual.imag())) return;
+
+            r[i*2] = residual.real();
+            r[i*2+1] = residual.imag();
+
+            for (int j = 0; j < n_ercs; ++j) {
+                Complex old_v = *ercs[j];
+                // Derivada numérica respecto a la parte REAL
+                *ercs[j] = old_v + epsilon;
+                Complex val_plus = ind.tree->eval(mini_dom[i].x, mini_dom[i].y);
+                Complex grad = (val_plus - val_orig) / epsilon;
+                *ercs[j] = old_v;
+
+                if (!std::isfinite(grad.real()) || !std::isfinite(grad.imag())) return;
+
+                // Columna j*2: Sensibilidad a la parte REAL
+                J[i*2][j*2]     = grad.real();
+                J[i*2+1][j*2]   = grad.imag();
+
+                // Columna j*2+1: Sensibilidad a la parte IMAGINARIA (Cauchy-Riemann)
+                // d/d(Im) = i * d/d(Re)  =>  Re(i*grad) = -Im(grad), Im(i*grad) = Re(grad)
+                J[i*2][j*2+1]   = -grad.imag();
+                J[i*2+1][j*2+1] = grad.real();
+            }
+        }
+
+        std::vector<double> delta_c;
+        solve_qr_internal(J, r, delta_c);
+
+        for (int j = 0; j < n_ercs; ++j) {
+            double dr = delta_c[j*2];
+            double di = delta_c[j*2+1];
+            if (std::isfinite(dr) && std::isfinite(di)) {
+                *ercs[j] += Complex(dr * 0.4, di * 0.4); // Salto amortiguado
+            }
         }
     }
-    // Re-evaluación final con todos los puntos para mantener consistencia
     ind.evaluate(prob_, dom_pts_, bnd_pts_);
 }

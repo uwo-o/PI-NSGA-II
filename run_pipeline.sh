@@ -6,11 +6,11 @@ mkdir -p build && cd build
 cmake .. && make -j$(nproc)
 cd ..
 
-echo ">>> Step 1: Symbolic Benchmark (20 runs for statistics)"
+echo ">>> Step 1: Symbolic Benchmark"
 ./build/pi_nsga2 --runs 1
 
 echo ">>> Step 2: PINN Baseline"
-# python3 pinn_baseline.py --epochs 1000 --runs 1
+python3 pinn_baseline.py --runs 1
 
 echo ">>> Step 3: Analysis and Plotting"
 python3 plot_pareto.py

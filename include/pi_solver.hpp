@@ -30,7 +30,7 @@ public:
     const std::vector<ConvergenceStats>& history() const { return history_; }
 
 private:
-    const PDEProblem& prob_;
+    PDEProblem prob_;
     std::mt19937 gen_;
     std::vector<PIIndividual> population_;
     std::vector<ConvergenceStats> history_;

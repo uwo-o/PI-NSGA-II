@@ -1,13 +1,15 @@
 // =============================================================================
-// main.cpp  —  Orquestador: PI-NSGA-II vs Tsoulos (GE)
+// main.cpp  —  Orquestador: PI-NSGA-II (Solo nuestro Algoritmo)
 //   Modos:
 //     ./build/pi_nsga2              → 1 corrida (comportamiento estándar)
 //     ./build/pi_nsga2 --runs N     → N corridas independientes (análisis estadístico)
 //
 //   Genera CSVs de frentes de Pareto para análisis comparativo.
-//   Ecuaciones: Laplace, Poisson, Helmholtz en Ω = [0,1]²
+//   Ecuaciones: Laplace, Poisson, Helmholtz, Liouville, Sine-Gordon.
 // =============================================================================
 
+#include "pi_solver.hpp"
+#include "numerical_solver.hpp"
 #include <iostream>
 #include <fstream>
 #include <iomanip>
@@ -21,7 +23,6 @@
 
 #include "common.hpp"
 #include "pde_problems.hpp"
-#include "tsoulos_ge.hpp"
 #include "pi_solver.hpp"
 
 namespace fs = std::filesystem;
@@ -94,16 +95,16 @@ void save_best_grid(const std::vector<Ind>& pop, const PDEProblem& prob, const s
             f << "x,u_exact,u_approx\n";
             for (int i = 0; i <= 100; ++i) {
                 double x = (double)i / 100.0;
-                f << x << "," << prob.exact(x, 0) << "," << best->tree->eval(x, 0) << "\n";
+                f << x << "," << std::real(prob.exact(x, 0)) << "," << std::real(best->tree->eval(x, 0)) << "\n";
             }
         } else {
             f << "x,y,u_exact,u_approx\n";
             int N = 50;
-            for (int i = 0; i < N; ++i) {
-                for (int j = 0; j < N; ++j) {
-                    double x = (double)i / (N-1);
-                    double y = (double)j / (N-1);
-                    f << x << "," << y << "," << prob.exact(x, y) << "," << best->tree->eval(x, y) << "\n";
+            for (int i = 0; i <= N; ++i) {
+                for (int j = 0; j <= N; ++j) {
+                    double x = (double)i / N;
+                    double y = (double)j / N;
+                    f << x << "," << y << "," << std::real(prob.exact(x, y)) << "," << std::real(best->tree->eval(x, y)) << "\n";
                 }
             }
         }
@@ -189,31 +190,23 @@ void save_summary(const std::vector<Stats>& stats, const std::string& path) {
     }
 }
 
-// ─── Tabla en consola ─────────────────────────────────────────────────────────
-void print_table(const std::string& lbl, const Stats& k, const Stats& p) {
+// ─── Tabla en consola (Solo PI-NSGA-II) ──────────────────────────────────────
+void print_table(const std::string& lbl, const Stats& p) {
     std::cout << "\n+------------------+-------------+-------------+----------+-------------+----------+\n";
     std::cout << "| " << std::left << std::setw(78) << ("  Ecuacion: " + lbl) << "|\n";
     std::cout << "+------------------+-------------+-------------+----------+-------------+----------+\n";
     std::cout << "| Metodo           | MSE Dom.    | MSE Bnd.    | Pareto   | Hipervolumen| Tiempo   |\n";
     std::cout << "+------------------+-------------+-------------+----------+-------------+----------+\n";
     std::cout << std::fixed << std::setprecision(4);
-    std::cout << "| Tsoulos (GE)     | " << std::setw(11) << k.best_domain
-              << " | " << std::setw(11) << k.best_bnd
-              << " | " << std::setw(8)  << k.front_size
-              << " | " << std::setw(11) << k.hypervolume
-              << " | " << std::setw(7)  << k.runtime_s << "s |\n";
     std::cout << "| PI-NSGA-II       | " << std::setw(11) << p.best_domain
               << " | " << std::setw(11) << p.best_bnd
               << " | " << std::setw(8)  << p.front_size
               << " | " << std::setw(11) << p.hypervolume
               << " | " << std::setw(7)  << p.runtime_s << "s |\n";
     std::cout << "+------------------+-------------+-------------+----------+-------------+----------+\n";
-    std::string winner = (k.best_domain + k.best_bnd < p.best_domain + p.best_bnd) ? "Tsoulos" : "PI-NSGA-II";
-    std::cout << "| GANADOR DEL DUELO: " << std::left << std::setw(59) << winner << " |\n";
-    std::cout << "+------------------+-------------+-------------+----------+-------------+----------+\n";
 }
 
-// ─── Una corrida completa (3 PDEs × 2 métodos) ───────────────────────────────
+// ─── Una corrida completa (Solo PI-NSGA-II) ──────────────────────────────────
 std::vector<Stats> run_once(int run_id, const std::string& out_dir, bool verbose) {
     unsigned seed_base = 1000u * (unsigned)(run_id + 1);
     std::vector<PDEProblem> problems;
@@ -222,46 +215,35 @@ std::vector<Stats> run_once(int run_id, const std::string& out_dir, bool verbose
         problems.push_back(make_poisson(d));
         problems.push_back(make_helmholtz(d, 1.0));
         problems.push_back(make_schrodinger(d));
+        problems.push_back(make_harmonic_oscillator(d));
     }
+    problems.push_back(make_airy());
     problems.push_back(make_nonlinear_poisson());
     problems.push_back(make_liouville());
     problems.push_back(make_sine_gordon());
+
     std::vector<Stats> all_stats;
 
     for (auto& prob : problems) {
         std::string lbl = prob.name() + (prob.dim == 1 ? "_1D" : "_2D");
-        if (verbose) {
-            std::cout << "\n=====================================================\n";
-            std::cout << "  " << lbl << "\n";
-            std::cout << "=====================================================\n";
+        
+        if (verbose) std::cout << "\n[Run] PI-NSGA-II en " << lbl << "\n";
+        if (prob.is_numerical) {
+            prob.numerical_truth = NumericalSolver::solve(prob, 50);
         }
 
-        // ── Tsoulos ─────────────────────────────────────────────────────────────
-        if (verbose) std::cout << "\n[1/2] Tsoulos (GE)\n";
         auto t0 = std::chrono::steady_clock::now();
-        TsoulosSolver tsoulos(prob, seed_base);
-        auto tsoulos_pop = tsoulos.run(Config::POP_SIZE, Config::MAX_GEN);
-        double tsoulos_rt = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
-        save_pareto_csv(tsoulos_pop, out_dir + "/" + lbl + "_tsoulos_pareto.csv", "Tsoulos", prob.name(), prob.dim);
-        save_convergence_csv(tsoulos.get_history(), out_dir + "/" + lbl + "_tsoulos_convergence.csv");
-        save_best_expression(tsoulos_pop, out_dir + "/expr_" + lbl + "_Tsoulos.tex");
-        save_best_grid(tsoulos_pop, prob, out_dir + "/grid_" + lbl + "_Tsoulos.csv");
-        Stats ts = compute_stats(tsoulos_pop, "Tsoulos", lbl, tsoulos_rt);
-
-        // ── PI-NSGA-II ────────────────────────────────────────────────────────
-        if (verbose) std::cout << "\n[2/2] PI-NSGA-II (AD Simbolico + ERCs)\n";
-        t0 = std::chrono::steady_clock::now();
         PISolver pi(prob, seed_base + 500u);
         auto pi_pop = pi.run(Config::POP_SIZE, Config::MAX_GEN);
         double pi_rt = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+        
         save_pareto_csv(pi_pop, out_dir + "/" + lbl + "_pi_pareto.csv", "PI-NSGA-II", prob.name(), prob.dim);
         save_convergence_csv(pi.history(), out_dir + "/" + lbl + "_pi_convergence.csv");
         save_best_expression(pi_pop, out_dir + "/expr_" + lbl + "_PI-NSGA-II.tex");
         save_best_grid(pi_pop, prob, out_dir + "/grid_" + lbl + "_PI-NSGA-II.csv");
+        
         Stats ps = compute_stats(pi_pop, "PI-NSGA-II", lbl, pi_rt);
-
-        if (verbose) print_table(lbl, ts, ps);
-        all_stats.push_back(ts);
+        if (verbose) print_table(lbl, ps);
         all_stats.push_back(ps);
     }
     return all_stats;
@@ -274,12 +256,12 @@ int main(int argc, char* argv[]) {
     }
 
     std::cout << "=============================================================\n";
-    std::cout << "  PI-NSGA-II vs Tsoulos --- Benchmark de Ecuaciones PDE\n";
+    std::cout << "  PI-NSGA-II --- Orquestador de Ecuaciones PDE\n";
     std::cout << "  Pop=" << Config::POP_SIZE << "  Gen=" << Config::MAX_GEN << "  Runs=" << n_runs << "\n";
     std::cout << "=============================================================\n\n";
 
     fs::create_directories("results");
-    bool verbose = true; // Habilitado por petición del usuario para ver el progreso detallado
+    bool verbose = true; 
     std::vector<std::vector<Stats>> all_runs;
 
     auto t0_all = std::chrono::steady_clock::now();
@@ -314,6 +296,7 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    std::cout << "\n  Listo. Archivos CSV en ./results/\n";
+    auto t_total = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0_all).count();
+    std::cout << "\n  Benchmark completado en " << t_total << "s. Resultados en ./results/\n";
     return 0;
 }

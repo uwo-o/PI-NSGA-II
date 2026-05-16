@@ -17,7 +17,7 @@ inline bool is_unary(NodeType t) {
            t == NodeType::EXP  || t == NodeType::SQR;
 }
 inline bool is_terminal(NodeType t) {
-    return t == NodeType::VAR_X || t == NodeType::VAR_Y || t == NodeType::ERC;
+    return t == NodeType::VAR_X || t == NodeType::VAR_Y || t == NodeType::ERC || t == NodeType::CONST_I;
 }
 
 class PDEProblem;
@@ -30,7 +30,7 @@ public:
 
     virtual NodeType get_type() const = 0;
     virtual AD ad_eval(double x, double y, int dim = 2) const = 0;
-    virtual double eval(double x, double y) const = 0;
+    virtual Complex eval(double x, double y) const = 0;
     virtual NodePtr clone() const = 0;
     virtual int count_nodes() const = 0;
     
@@ -42,7 +42,7 @@ public:
     virtual NodePtr prune_recursive(const PDEProblem& prob, const std::vector<Point>& dom, const std::vector<Point>& bnd, double original_mse, double tolerance) = 0;
     
     // Para Hill Climbing: recolecta punteros a todas las constantes del árbol
-    virtual void collect_ercs(std::vector<double*>& ptrs) = 0;
+    virtual void collect_ercs(std::vector<Complex*>& ptrs) = 0;
 
     // Verifica si el árbol usa una variable específica (VAR_X o VAR_Y)
     virtual bool uses_variable(NodeType var_type) const = 0;
@@ -53,12 +53,12 @@ public:
 class TerminalNode final : public Node {
 public:
     NodeType type;
-    double erc_val;
+    Complex erc_val;
 
-    TerminalNode(NodeType t, double val = 0.0) : type(t), erc_val(val) {}
+    TerminalNode(NodeType t, Complex val = 0.0) : type(t), erc_val(val) {}
     NodeType get_type() const override { return type; }
     AD ad_eval(double x, double y, int dim = 2) const override;
-    double eval(double x, double y) const override;
+    Complex eval(double x, double y) const override;
     NodePtr clone() const override { return std::make_unique<TerminalNode>(type, erc_val); }
     int count_nodes() const override { return 1; }
     void mutate_erc(std::mt19937& gen, double sigma = Config::ERC_SIGMA) override;
@@ -66,7 +66,7 @@ public:
     void print_latex(std::ostream& os) const override;
     NodePtr simplify() const override;
     NodePtr prune_recursive(const PDEProblem& prob, const std::vector<Point>& dom, const std::vector<Point>& bnd, double original_mse, double tolerance) override;
-    void collect_ercs(std::vector<double*>& ptrs) override {
+    void collect_ercs(std::vector<Complex*>& ptrs) override {
         if (type == NodeType::ERC) ptrs.push_back(&erc_val);
     }
     bool uses_variable(NodeType var_type) const override {
@@ -82,7 +82,7 @@ public:
     UnaryNode(NodeType t, NodePtr c) : type(t), child(std::move(c)) {}
     NodeType get_type() const override { return type; }
     AD ad_eval(double x, double y, int dim = 2) const override;
-    double eval(double x, double y) const override;
+    Complex eval(double x, double y) const override;
     NodePtr clone() const override { return std::make_unique<UnaryNode>(type, child->clone()); }
     int count_nodes() const override { return 1 + child->count_nodes(); }
     void mutate_erc(std::mt19937& gen, double sigma = Config::ERC_SIGMA) override { child->mutate_erc(gen, sigma); }
@@ -90,7 +90,7 @@ public:
     void print_latex(std::ostream& os) const override;
     NodePtr simplify() const override;
     NodePtr prune_recursive(const PDEProblem& prob, const std::vector<Point>& dom, const std::vector<Point>& bnd, double original_mse, double tolerance) override;
-    void collect_ercs(std::vector<double*>& ptrs) override {
+    void collect_ercs(std::vector<Complex*>& ptrs) override {
         child->collect_ercs(ptrs);
     }
     bool uses_variable(NodeType var_type) const override {
@@ -107,7 +107,7 @@ public:
     BinaryNode(NodeType t, NodePtr l, NodePtr r) : type(t), left(std::move(l)), right(std::move(r)) {}
     NodeType get_type() const override { return type; }
     AD ad_eval(double x, double y, int dim = 2) const override;
-    double eval(double x, double y) const override;
+    Complex eval(double x, double y) const override;
     NodePtr clone() const override { return std::make_unique<BinaryNode>(type, left->clone(), right->clone()); }
     int count_nodes() const override { return 1 + left->count_nodes() + right->count_nodes(); }
     void mutate_erc(std::mt19937& gen, double sigma = Config::ERC_SIGMA) override {
@@ -118,7 +118,7 @@ public:
     void print_latex(std::ostream& os) const override;
     NodePtr simplify() const override;
     NodePtr prune_recursive(const PDEProblem& prob, const std::vector<Point>& dom, const std::vector<Point>& bnd, double original_mse, double tolerance) override;
-    void collect_ercs(std::vector<double*>& ptrs) override {
+    void collect_ercs(std::vector<Complex*>& ptrs) override {
         left->collect_ercs(ptrs);
         right->collect_ercs(ptrs);
     }
@@ -129,13 +129,14 @@ public:
 
 // ─── Constructores de nodos ───────────────────────────────────────────────────
 NodePtr make_var(char v);
-NodePtr make_erc(double val);
+NodePtr make_erc(Complex val);
+NodePtr make_const_i();
 NodePtr make_binary(NodeType op, NodePtr l, NodePtr r);
 NodePtr make_unary(NodeType op, NodePtr child);
 
 // ─── Generación aleatoria de árbol ────────────────────────────────────────────
 NodePtr random_tree(int max_depth, std::mt19937& gen, bool force_terminal = false);
-NodePtr random_tree_special(int max_depth, std::mt19937& gen, int dim);
+NodePtr random_tree_special(int max_depth, std::mt19937& gen, const PDEProblem& prob);
 
 // ─── Operadores evolutivos ────────────────────────────────────────────────────
 // Cruce homólogo estructural
@@ -146,4 +147,4 @@ NodePtr tree_mutate(const NodePtr& tree, std::mt19937& gen);
 void replace_node_at(NodePtr& current, int& target_idx, NodePtr& replacement);
 
 // ─── Laplaciano via diferencias finitas (para método Koza) ───────────────────
-double fd_laplacian(const NodePtr& tree, double x, double y, int dim, double h = 1e-5);
+Complex fd_laplacian(const NodePtr& tree, double x, double y, int dim, double h = 1e-5);

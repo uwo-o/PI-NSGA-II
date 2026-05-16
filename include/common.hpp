@@ -6,9 +6,17 @@
 #include <vector>
 #include <string>
 #include <limits>
+#include <complex>
+
+using Complex = std::complex<double>;
+const Complex I_COMPLEX(0.0, 1.0);
 
 // ─── Tipos de PDE soportados ──────────────────────────────────────────────────
-enum class PDE { LAPLACE, POISSON, HELMHOLTZ, SCHRODINGER, NONLINEAR_POISSON, LIOUVILLE, SINE_GORDON };
+enum class PDE { 
+    LAPLACE, POISSON, HELMHOLTZ, SCHRODINGER, 
+    NONLINEAR_POISSON, LIOUVILLE, SINE_GORDON,
+    AIRY, HARMONIC_OSCILLATOR, GROSS_PITAEVSKII
+};
 
 inline std::string pde_name(PDE t) {
     switch (t) {
@@ -19,6 +27,9 @@ inline std::string pde_name(PDE t) {
         case PDE::NONLINEAR_POISSON: return "NonlinearPoisson";
         case PDE::LIOUVILLE:         return "Liouville";
         case PDE::SINE_GORDON:       return "Sine-Gordon";
+        case PDE::AIRY:              return "Airy";
+        case PDE::HARMONIC_OSCILLATOR: return "HarmonicOscillator";
+        case PDE::GROSS_PITAEVSKII:  return "Gross-Pitaevskii";
         default: return "Unknown";
     }
 }
@@ -27,15 +38,17 @@ inline std::string pde_name(PDE t) {
 enum class NodeType {
     ADD, SUB, MUL, DIV,
     SIN, COS, SINH, COSH, EXP, SQR,
-    VAR_X, VAR_Y, ERC,
+    VAR_X, VAR_Y, ERC, CONST_I,
     UNKNOWN
 };
 
 // ─── Estructura Dual (Valor + Derivadas) para AD ──────────────────────────────
 struct AD {
-    double v;   // valor
-    double dx, dy;
-    double dxx, dyy;
+    Complex v;   // valor
+    Complex dx, dy;
+    Complex dxx, dyy;
+    
+    AD(Complex val = 0.0) : v(val), dx(0), dy(0), dxx(0), dyy(0) {}
 };
 
 // ─── Punto en el dominio ──────────────────────────────────────────────────────

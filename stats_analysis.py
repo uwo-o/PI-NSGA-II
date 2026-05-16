@@ -1,57 +1,48 @@
 #!/usr/bin/env python3
 """
-stats_analysis.py — Análisis estadístico completo con Media ± Std.
+stats_analysis.py — Análisis estadístico de rendimiento para PI-NSGA-II.
 """
 import os, sys, warnings
 import numpy as np
 import pandas as pd
-from scipy import stats as scipy_stats
 
 warnings.filterwarnings("ignore")
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 RESULTS_DIR = os.path.join(BASE_DIR, "results")
 
-def wilcoxon_test(a, b):
-    if len(a) < 2 or len(b) < 2: return None
-    try:
-        _, p = scipy_stats.mannwhitneyu(a, b, alternative="two-sided")
-        return p
-    except: return None
-
 def main():
     path = os.path.join(RESULTS_DIR, "all_runs_summary.csv")
-    if not os.path.exists(path): return
+    if not os.path.exists(path): 
+        print(f"[ERROR] No se encontró {path}")
+        return
     
     df = pd.read_csv(path)
     df["mse_total"] = pd.to_numeric(df["best_mse_domain"], errors='coerce') + pd.to_numeric(df["best_mse_boundary"], errors='coerce')
     df = df.dropna(subset=["mse_total"])
     
+    # Filtrar solo nuestro algoritmo
+    df = df[df["method"] == "PI-NSGA-II"]
     pdes = sorted(df["pde"].unique())
 
-    print("\n" + "="*110)
-    print(f"{'PDE Case':<25} {'Tsoulos (Mean ± Std)':<30} {'PI-NSGA-II (Mean ± Std)':<35} {'p-val':<10} {'Winner':<10}")
-    print("-" * 110)
+    print("\n" + "="*80)
+    print(f"{'PDE Case':<25} {'PI-NSGA-II (Mean ± Std)':<35} {'Runtime (s)':<15}")
+    print("-" * 80)
 
     for pde in pdes:
         sub = df[df["pde"] == pde]
         
-        a = sub[sub["method"] == "Tsoulos"]["mse_total"].values
-        b = sub[sub["method"] == "PI-NSGA-II"]["mse_total"].values
+        errs = sub["mse_total"].values
+        times = sub["runtime_s"].values
         
-        mean_a, std_a = (np.mean(a), np.std(a)) if len(a)>0 else (0, 0)
-        mean_b, std_b = (np.mean(b), np.std(b)) if len(b)>0 else (0, 0)
+        m_err, s_err = (np.mean(errs), np.std(errs)) if len(errs)>0 else (0, 0)
+        m_time = np.mean(times) if len(times)>0 else 0
         
-        p = wilcoxon_test(a, b)
-        p_str = f"{p:.2e}" if p is not None else "N/A"
+        str_err = f"{m_err:.2e} ± {s_err:.2e}"
+        str_time = f"{m_time:.2f}s"
         
-        winner = "Tsoulos" if mean_a < mean_b else "PI-NSGA-II"
-        
-        str_a = f"{mean_a:.1e} ± {std_a:.1e}"
-        str_b = f"{mean_b:.1e} ± {std_b:.1e}"
-        
-        print(f"{pde:<25} {str_a:<30} {str_b:<35} {p_str:<10} {winner:<10}")
+        print(f"{pde:<25} {str_err:<35} {str_time:<15}")
 
-    print("-" * 110)
+    print("-" * 80)
 
 if __name__ == "__main__":
     main()
