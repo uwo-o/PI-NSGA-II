@@ -63,12 +63,15 @@ template<typename Ind>
 void save_best_expression(const std::vector<Ind>& pop, const std::string& path) {
     const Ind* best = nullptr;
     double min_err = 1e18;
+
+    // Prioridad: Mejor factible en Rank 1
     for (auto& ind : pop) {
-        if (ind.rank == 1) {
+        if (ind.rank == 1 && ind.is_feasible && ind.tree) {
             double err = ind.mse_domain + ind.mse_boundary;
             if (err < min_err) { min_err = err; best = &ind; }
         }
     }
+
     if (best) {
         std::ofstream f(path);
         f << "$$ \\hat{u}(x,y) = ";
@@ -83,19 +86,21 @@ template<typename Ind>
 void save_best_grid(const std::vector<Ind>& pop, const PDEProblem& prob, const std::string& path) {
     const Ind* best = nullptr;
     double min_err = 1e18;
+
     for (auto& ind : pop) {
-        if (ind.rank == 1) {
+        if (ind.rank == 1 && ind.is_feasible && ind.tree) {
             double err = ind.mse_domain + ind.mse_boundary;
             if (err < min_err) { min_err = err; best = &ind; }
         }
     }
+
     if (best) {
         std::ofstream f(path);
         if (prob.dim == 1) {
             f << "x,u_exact,u_approx\n";
             for (int i = 0; i <= 100; ++i) {
                 double x = (double)i / 100.0;
-                f << x << "," << std::real(prob.numerical_exact(x, 0)) << "," << std::real(best->tree->eval(x, 0)) << "\n";
+                f << x << "," << std::real(prob.numerical_exact(x, 0, 0)) << "," << std::real(best->tree->eval(x, 0)) << "\n";
             }
         } else {
             f << "x,y,u_exact,u_approx\n";
@@ -103,7 +108,7 @@ void save_best_grid(const std::vector<Ind>& pop, const PDEProblem& prob, const s
                 for (int j = 0; j <= 30; ++j) {
                     double x = (double)i / 30.0;
                     double y = (double)j / 30.0;
-                    f << x << "," << y << "," << std::real(prob.numerical_exact(x, y)) << "," << std::real(best->tree->eval(x, y)) << "\n";
+                    f << x << "," << y << "," << std::real(prob.numerical_exact(x, y, 0)) << "," << std::real(best->tree->eval(x, y)) << "\n";
                 }
             }
         }
@@ -120,6 +125,8 @@ struct Stats {
     double mean_bnd    = 0.0;
     double runtime_s   = 0.0;
     double hypervolume = 0.0;
+    double infeasible_ratio = 0.0;
+    double bloat_factor = 0.0;
 };
 
 // ─── Hipervolumen 3D: mse_domain × mse_boundary × tree_size (normalizado) ─────
@@ -237,14 +244,24 @@ Stats compute_stats(const std::vector<Ind>& pop,
 {
     Stats s;
     s.method = method; s.pde = pde; s.runtime_s = rt;
+    int infeasible = 0;
+    int total_nodes = 0;
     for (auto& ind : pop) {
-        if (ind.rank == 1) {
+        if (!ind.is_feasible) {
+            infeasible++;
+        }
+        total_nodes += ind.tree_size;
+        if (ind.rank == 1 && ind.is_feasible) {
             s.front_size++;
             s.best_domain = std::min(s.best_domain, ind.mse_domain);
             s.best_bnd    = std::min(s.best_bnd,    ind.mse_boundary);
             s.mean_domain += ind.mse_domain;
             s.mean_bnd    += ind.mse_boundary;
         }
+    }
+    if (!pop.empty()) {
+        s.infeasible_ratio = 100.0 * infeasible / pop.size();
+        s.bloat_factor = (double)total_nodes / pop.size();
     }
     if (s.front_size > 0) {
         s.mean_domain /= s.front_size;
@@ -282,30 +299,47 @@ void print_table(const std::string& lbl, const Stats& p) {
               << " | " << std::setw(11) << p.hypervolume
               << " | " << std::setw(7)  << p.runtime_s << "s |\n";
     std::cout << "+------------------+-------------+-------------+----------+-------------+----------+\n";
+    std::cout << "| Health Analytics | Infeasible: " << std::setw(5) << std::fixed << std::setprecision(1) << p.infeasible_ratio << "% | Bloat Factor (Avg nodes): " << std::setw(5) << p.bloat_factor << "         |\n";
+    std::cout << "+------------------+-------------+-------------+----------+-------------+----------+\n";
 }
 
 // ─── Una corrida completa (Solo PI-NSGA-II) ──────────────────────────────────
-std::vector<Stats> run_once(int run_id, const std::string& out_dir, bool verbose, bool is_test) {
+std::vector<Stats> run_once(int run_id, const std::string& out_dir, bool verbose, bool is_test, const std::string& only_pde) {
     unsigned seed_base = 1000u * (unsigned)(run_id + 1);
-    std::vector<PDEProblem> problems;
+    std::vector<PDEProblem> all_problems;
     
     // 1D y 2D Hardcore Equations
     for (int d : {1, 2}) {
-        problems.push_back(make_airy(d));
-        problems.push_back(make_fisher(d));
-        problems.push_back(make_duffing(d));
-        problems.push_back(make_thomas_fermi(d));
+        all_problems.push_back(make_airy(d));
+        all_problems.push_back(make_fisher(d));
+        all_problems.push_back(make_duffing(d));
+        all_problems.push_back(make_thomas_fermi(d));
     }
 
     // Navier-Stokes (The "Boss" Analyticals)
-    problems.push_back(make_navier_stokes());
-    problems.push_back(make_navier_stokes_unsteady());
+    all_problems.push_back(make_navier_stokes());
+    all_problems.push_back(make_navier_stokes_unsteady());
     
     // 1D Only Hardcore Numerical Equations
-    problems.push_back(make_lane_emden());
-    problems.push_back(make_troesch());
-    problems.push_back(make_ginzburg_landau());
-    problems.push_back(make_painleve1());
+    all_problems.push_back(make_lane_emden());
+    all_problems.push_back(make_troesch());
+    all_problems.push_back(make_ginzburg_landau());
+    all_problems.push_back(make_painleve1());
+
+    std::vector<PDEProblem> problems;
+    if (!only_pde.empty()) {
+        for (auto& p : all_problems) {
+            std::string lbl = p.name() + (p.dim == 1 ? "_1D" : "_2D");
+            if (lbl == only_pde) {
+                problems.push_back(p);
+            }
+        }
+        if (problems.empty()) {
+            std::cerr << "[ERROR] PDE '" << only_pde << "' no encontrada.\n";
+        }
+    } else {
+        problems = all_problems;
+    }
 
     std::vector<Stats> all_stats;
 
@@ -369,6 +403,30 @@ std::vector<Stats> run_once(int run_id, const std::string& out_dir, bool verbose
             int pop = is_test ? 10 : Config::POP_SIZE;
             int gen = is_test ? 5 : Config::MAX_GEN;
             auto pi_pop = pi.run(pop, gen);
+            
+            // ─── Post-Evolution Polishing ───
+            // Seleccionamos al mejor no-trivial de la población final y le aplicamos el pulidor
+            PIIndividual* best_ind = nullptr;
+            double min_total_err = 1e18;
+            for (auto& ind : pi_pop) {
+                if (ind.rank == 1 && ind.tree && ind.is_feasible) {
+                    // Filtro de Variables para el Campeón
+                    bool vars_ok = true;
+                    if (prob.dim >= 2) {
+                        if (!ind.tree->uses_variable(NodeType::VAR_X) || !ind.tree->uses_variable(NodeType::VAR_Y)) vars_ok = false;
+                    }
+                    if (prob.type == PDE::NAVIER_STOKES_UNSTEADY) {
+                        if (!ind.tree->uses_variable(NodeType::VAR_T)) vars_ok = false;
+                    }
+                    
+                    if (vars_ok) {
+                        double err = ind.mse_domain + ind.mse_boundary;
+                        if (err < min_total_err) { min_total_err = err; best_ind = &ind; }
+                    }
+                }
+            }
+            if (best_ind) pi.polish_constants(*best_ind);
+
             double pi_rt = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
             
             save_pareto_csv(pi_pop, out_dir + "/" + lbl + "_pi_gn_pareto.csv", "PI-NSGA-II", prob.name(), prob.dim);
@@ -398,12 +456,49 @@ std::vector<Stats> run_once(int run_id, const std::string& out_dir, bool verbose
     return all_stats;
 }
 
+void print_usage(char* prog) {
+    std::cout << "Usage: " << prog << " [options]\n"
+              << "Options:\n"
+              << "  --runs N          Number of independent runs (default: 1)\n"
+              << "  --test            Fast test mode (small pop/gen)\n"
+              << "  --only NAME       Run only a specific PDE (e.g., Airy_1D)\n"
+              << "  --pop N           Population size (default: 300)\n"
+              << "  --gen N           Max generations (default: 300)\n"
+              << "  --domain N        Number of domain points (default: 2000)\n"
+              << "  --boundary N      Number of boundary points (default: 500)\n"
+              << "  --depth N         Max tree depth (default: 8)\n"
+              << "  --sigma F         ERC mutation sigma (default: 0.20)\n"
+              << "  --stop F          Convergence threshold (default: 1e-7)\n"
+              << "  --cores N         Number of CPU threads (default: 1)\n"
+              << "  --help            Show this help\n";
+}
+
 int main(int argc, char* argv[]) {
     int n_runs = 1;
     bool is_test = false;
+    std::string only_pde = "";
+
     for (int i = 1; i < argc; ++i) {
-        if (std::strcmp(argv[i], "--runs") == 0 && i+1 < argc) n_runs = std::atoi(argv[i+1]);
-        if (std::strcmp(argv[i], "--test") == 0) is_test = true;
+        if (std::strcmp(argv[i], "--runs") == 0 && i+1 < argc) n_runs = std::atoi(argv[++i]);
+        else if (std::strcmp(argv[i], "--test") == 0) is_test = true;
+        else if (std::strcmp(argv[i], "--only") == 0 && i+1 < argc) only_pde = argv[++i];
+        else if (std::strcmp(argv[i], "--pop") == 0 && i+1 < argc) Config::POP_SIZE = std::atoi(argv[++i]);
+        else if (std::strcmp(argv[i], "--gen") == 0 && i+1 < argc) Config::MAX_GEN = std::atoi(argv[++i]);
+        else if (std::strcmp(argv[i], "--domain") == 0 && i+1 < argc) Config::N_DOMAIN = std::atoi(argv[++i]);
+        else if (std::strcmp(argv[i], "--boundary") == 0 && i+1 < argc) Config::N_BOUNDARY = std::atoi(argv[++i]);
+        else if (std::strcmp(argv[i], "--depth") == 0 && i+1 < argc) Config::MAX_TREE_DEPTH = std::atoi(argv[++i]);
+        else if (std::strcmp(argv[i], "--sigma") == 0 && i+1 < argc) Config::ERC_SIGMA = std::atof(argv[++i]);
+        else if (std::strcmp(argv[i], "--stop") == 0 && i+1 < argc) Config::STOP_THRESHOLD = std::atof(argv[++i]);
+        else if (std::strcmp(argv[i], "--cores") == 0 && i+1 < argc) Config::CORES = std::atoi(argv[++i]);
+        else if (std::strcmp(argv[i], "--help") == 0) { print_usage(argv[0]); return 0; }
+    }
+
+    // Aplicar configuración de paralelismo
+    if (Config::CORES > 0) {
+        omp_set_num_threads(Config::CORES);
+    } else {
+        Config::CORES = omp_get_max_threads();
+        omp_set_num_threads(Config::CORES);
     }
 
     if (is_test) {
@@ -411,6 +506,8 @@ int main(int argc, char* argv[]) {
         int threads_to_use = std::max(1, max_threads - 2);
         omp_set_num_threads(threads_to_use);
         std::cout << "[INFO] Modo --test activado. Usando " << threads_to_use << " nucleos.\n";
+        Config::POP_SIZE = 10;
+        Config::MAX_GEN = 5;
     }
 
     std::cout << "=============================================================\n";
@@ -434,7 +531,7 @@ int main(int argc, char* argv[]) {
         std::string out_dir = (n_runs == 1) ? "results" : "results/run_" + std::to_string(r);
         if (n_runs > 1) fs::create_directories(out_dir);
         
-        auto stats = run_once(r, out_dir, verbose, is_test);
+        auto stats = run_once(r, out_dir, verbose, is_test, only_pde);
         all_runs.push_back(stats);
         save_summary(stats, out_dir + "/comparison_summary.csv");
 

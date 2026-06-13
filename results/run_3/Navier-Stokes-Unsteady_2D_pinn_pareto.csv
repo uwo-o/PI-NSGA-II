@@ -1,0 +1,2 @@
+method,pde,dim,mse_domain,mse_boundary,runtime_s,rank
+DeepXDE,Navier-Stokes-Unsteady,2,0.2341286227,0.0000000000,7278.8302,1

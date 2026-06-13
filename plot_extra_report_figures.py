@@ -26,7 +26,10 @@ matplotlib.rcParams.update({
 })
 
 PDES_TO_PLOT = [
-    "Airy_2D", "Fisher_2D", "Duffing_2D", "ThomasFermi_2D", 
+    "Airy_1D", "Airy_2D", 
+    "Fisher_1D", "Fisher_2D", 
+    "Duffing_1D", "Duffing_2D", 
+    "Thomas-Fermi_1D", "Thomas-Fermi_2D", 
     "Navier-Stokes_2D", "Navier-Stokes-Unsteady_2D",
     "Lane-Emden_1D", "Troesch_1D", "Ginzburg-Landau_1D", "Painleve-I_1D"
 ]
@@ -103,65 +106,116 @@ def plot_parsimony():
     plt.close(fig)
 
 def plot_pareto_fronts():
+    """
+    Genera una grilla limpia de frentes de Pareto 3D sin barras individuales.
+    """
     n_pdes = len(PDES_TO_PLOT)
     n_cols = 3
     n_rows = (n_pdes + n_cols - 1) // n_cols
-    fig = plt.figure(figsize=(6 * n_cols, 5 * n_rows))
-    fig.subplots_adjust(hspace=0.4, wspace=0.3)
     
+    fig = plt.figure(figsize=(24, 6 * n_rows), layout="constrained")
+    
+    last_scatter = None
     for idx, pde_name in enumerate(PDES_TO_PLOT):
         ax = fig.add_subplot(n_rows, n_cols, idx + 1, projection='3d')
         
-        # PI-NSGA-II Pareto
         gn_file = os.path.join(RESULTS_DIR, f"{pde_name}_pi_gn_pareto.csv")
         if os.path.exists(gn_file):
             df = pd.read_csv(gn_file)
             df = df[(df["mse_domain"] < 1e5) & (df["mse_boundary"] < 1e5)]
-            if len(df) == 0:
-                continue
+            if len(df) == 0: continue
                 
-            x = df["mse_domain"].clip(lower=1e-20)
-            y = df["mse_boundary"].clip(lower=1e-20)
-            z = df["tree_size"]
-            r = df["rank"]
+            x, y, z, r = df["mse_domain"].clip(lower=1e-20), df["mse_boundary"].clip(lower=1e-20), df["tree_size"], df["rank"]
+            mask_rank1, mask_dominated = (r == 1), (r > 1)
             
-            # Identify fronts
-            mask_rank1 = (r == 1)
-            mask_dominated = (r > 1)
-            
-            # Plot dominated (transparent)
             if mask_dominated.any():
-                ax.scatter(np.log10(x[mask_dominated]), 
-                           np.log10(y[mask_dominated]), 
-                           z[mask_dominated], 
-                           c='gray', s=30, alpha=0.4, label='Dominated')
+                ax.scatter(np.log10(x[mask_dominated]), np.log10(y[mask_dominated]), z[mask_dominated], 
+                           c='lightgray', s=15, alpha=0.2)
             
-            # Plot rank 1 (opaque)
             if mask_rank1.any():
-                scatter = ax.scatter(np.log10(x[mask_rank1]), 
-                                     np.log10(y[mask_rank1]), 
-                                     z[mask_rank1], 
-                                     c=z[mask_rank1], cmap='viridis', s=80, alpha=1.0, 
-                                     edgecolors="white", linewidth=0.5, label='Pareto Front')
-                # Colorbar only for the main front
-                cbar = fig.colorbar(scatter, ax=ax, pad=0.1, shrink=0.6)
-                cbar.set_label("Complexity", rotation=270, labelpad=15)
+                last_scatter = ax.scatter(np.log10(x[mask_rank1]), np.log10(y[mask_rank1]), z[mask_rank1], 
+                                     c=z[mask_rank1], cmap='viridis', s=60, alpha=1.0, 
+                                     edgecolors="white", linewidth=0.3)
             
-        ax.set_title(pde_name.replace("_", " "), pad=15, fontweight="bold")
-        ax.set_xlabel("log10(Dom MSE)", labelpad=10)
-        ax.set_ylabel("log10(Bnd MSE)", labelpad=10)
-        ax.set_zlabel("Complexity", labelpad=10)
-        
-        # Orientación para ver bien las 3 dimensiones
-        ax.view_init(elev=25, azim=-135)
+        ax.set_title(pde_name.replace("_", " "), pad=5, fontsize=20, fontweight="bold")
+        ax.set_xlabel("log(Dom)", labelpad=10, fontsize=14)
+        ax.set_ylabel("log(Bnd)", labelpad=10, fontsize=14)
+        ax.set_zlabel("Nodes", labelpad=10, fontsize=14)
+        ax.view_init(elev=20, azim=-120)
 
-    plt.suptitle("3D Pareto Analysis: Domain MSE vs. Boundary MSE vs. Complexity", fontweight="bold", y=0.95)
-    out_path = os.path.join(FIGS_DIR, "pareto_fronts.pdf")
+    # Una sola barra de color global para toda la grilla
+    if last_scatter:
+        cbar = fig.colorbar(last_scatter, ax=fig.get_axes(), shrink=0.4, aspect=40, pad=0.02, location='right')
+        cbar.set_label("Complexity (Total Nodes)", rotation=270, labelpad=25, fontsize=18)
+
+    plt.suptitle("3D Pareto Landscape: Domain vs. Boundary vs. Complexity", fontsize=32, fontweight="bold", y=1.02)
+    out_path = os.path.join(FIGS_DIR, "pareto_fronts_3d.pdf")
     fig.savefig(out_path, bbox_inches="tight", format="pdf")
     print(f"Generated: {out_path}")
     plt.close(fig)
 
+def plot_pairwise_pareto_fronts():
+    """
+    Genera una matriz de plots por pares (2D) para cada PDE,
+    incluyendo soluciones dominadas en gris claro.
+    """
+    for pde_name in PDES_TO_PLOT:
+        gn_file = os.path.join(RESULTS_DIR, f"{pde_name}_pi_gn_pareto.csv")
+        if not os.path.exists(gn_file): continue
+        
+        df = pd.read_csv(gn_file)
+        df = df[(df["mse_domain"] < 1e5) & (df["mse_boundary"] < 1e5)]
+        if len(df) == 0: continue
+        
+        fig, axes = plt.subplots(1, 3, figsize=(21, 6), layout="constrained")
+        
+        mask_rank1 = (df["rank"] == 1)
+        mask_dominated = (df["rank"] > 1)
+        
+        # 1. Domain vs Boundary (Log-Log)
+        ax = axes[0]
+        if mask_dominated.any():
+            ax.scatter(df[mask_dominated]["mse_domain"], df[mask_dominated]["mse_boundary"], 
+                       c='lightgray', s=20, alpha=0.3, label='Dominated')
+        ax.scatter(df[mask_rank1]["mse_domain"], df[mask_rank1]["mse_boundary"], 
+                   c='#2E86C1', s=60, edgecolors='white', linewidth=0.5, label='Pareto Front', zorder=10)
+        ax.set_xscale("log"); ax.set_yscale("log")
+        ax.set_xlabel("Domain MSE", fontsize=16); ax.set_ylabel("Boundary MSE", fontsize=16)
+        ax.set_title("Physics vs. Boundary", fontsize=18, fontweight="bold")
+        ax.grid(True, which="both", ls="-", alpha=0.1)
+        ax.legend(fontsize=14)
+
+        # 2. Domain vs Complexity (Log-Linear)
+        ax = axes[1]
+        if mask_dominated.any():
+            ax.scatter(df[mask_dominated]["mse_domain"], df[mask_dominated]["tree_size"], 
+                       c='lightgray', s=20, alpha=0.3)
+        ax.scatter(df[mask_rank1]["mse_domain"], df[mask_rank1]["tree_size"], 
+                   c='#E67E22', s=60, edgecolors='white', linewidth=0.5, zorder=10)
+        ax.set_xscale("log")
+        ax.set_xlabel("Domain MSE", fontsize=16); ax.set_ylabel("Complexity (Nodes)", fontsize=16)
+        ax.set_title("Physics vs. Complexity", fontsize=18, fontweight="bold")
+        ax.grid(True, which="both", ls="-", alpha=0.1)
+
+        # 3. Boundary vs Complexity (Log-Linear)
+        ax = axes[2]
+        if mask_dominated.any():
+            ax.scatter(df[mask_dominated]["mse_boundary"], df[mask_dominated]["tree_size"], 
+                       c='lightgray', s=20, alpha=0.3)
+        ax.scatter(df[mask_rank1]["mse_boundary"], df[mask_rank1]["tree_size"], 
+                   c='#27AE60', s=60, edgecolors='white', linewidth=0.5, zorder=10)
+        ax.set_xscale("log")
+        ax.set_xlabel("Boundary MSE", fontsize=16); ax.set_ylabel("Complexity (Nodes)", fontsize=16)
+        ax.set_title("Boundary vs. Complexity", fontsize=18, fontweight="bold")
+        ax.grid(True, which="both", ls="-", alpha=0.1)
+
+        plt.suptitle(f"Pairwise Pareto Trade-offs: {pde_name.replace('_', ' ')}", fontsize=22, fontweight='bold')
+        out_path = os.path.join(FIGS_DIR, f"pareto_pairs_{pde_name}.pdf")
+        plt.savefig(out_path, bbox_inches='tight', format='pdf')
+        plt.close()
+        print(f"Generated: {out_path}")
+
 if __name__ == "__main__":
-    plot_convergence()
     plot_parsimony()
     plot_pareto_fronts()
+    plot_pairwise_pareto_fronts()

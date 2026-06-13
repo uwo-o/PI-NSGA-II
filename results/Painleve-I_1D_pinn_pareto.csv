@@ -1,0 +1,2 @@
+method,pde,dim,mse_domain,mse_boundary,runtime_s,rank
+DeepXDE,Painleve-I,1,0.0570070979,0.1427085907,0.2993,1

@@ -1,0 +1,2 @@
+method,pde,dim,mse_domain,mse_boundary,runtime_s,rank
+DeepXDE,Airy,2,0.0001177099,0.0000003546,1043.7126,1

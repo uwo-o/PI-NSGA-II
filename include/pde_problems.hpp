@@ -30,24 +30,39 @@ struct PDEProblem {
     // Puntos de condición de frontera (Dirichlet sobre ∂Ω)
     std::vector<Point> boundary_points(int n) const;
 
-    // Solución exacta conocida u*(x,y)
-    virtual Complex exact(double x, double y) const;
-    Complex numerical_exact(double x, double y) const;
+    // Solución exacta conocida u*(x,y,t)
+    virtual Complex exact(double x, double y, double t = 0.0) const;
+    Complex numerical_exact(double x, double y, double t = 0.0) const;
     Complex pde_second_derivative(double x, Complex u) const;
 
-    // Término fuente f(x,y) del lado derecho: ∇²u + k²u = f
-    virtual Complex source(double x, double y) const;
+    // Término fuente f(x,y,t) del lado derecho
+    virtual Complex source(double x, double y, double t = 0.0) const;
 
-    // Condición de frontera (valor de u en ∂Ω)
-    virtual Complex bc(double x, double y) const;
+    // Condición de frontera (valor de u en ∂Ω a tiempo t)
+    virtual Complex bc(double x, double y, double t = 0.0) const;
 
     // Residuo del PDE usando AD (para método propuesto)
     // R = ∇²u + k²u - f
-    virtual Complex pde_residual_ad(const AD& ad, double x, double y) const;
+    virtual Complex pde_residual_ad(const AD& ad, double x, double y, double t = 0.0) const;
 
     // Nombre legible
     std::string name() const;
 };
+
+// ─── Análisis a priori de la física (Physics-Guided Search) ───────────────
+struct PDEPriors {
+    bool autonomous_x = false;   
+    bool autonomous_y = false;   
+    bool pole_at_origin = false; 
+    bool even_parity_x = false;  
+    
+    // Priors de Nivel Superior
+    bool scale_invariant = false; // Invarianza de escala (Auto-similaridad)
+    int  max_deriv_order = 0;     // ADN Diferencial (Orden máximo de derivación)
+    bool is_conservative = false; // Leyes de conservación (Divergencia nula)
+};
+
+PDEPriors probe_priors(const PDEProblem& prob);
 
 // ─── Fabricación de problemas ─────────────────────────────────────────────────
 PDEProblem make_laplace(int dim = 2);

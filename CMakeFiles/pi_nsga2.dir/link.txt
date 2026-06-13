@@ -1,1 +1,0 @@
-/usr/bin/c++  -fopenmp -O3 -march=native -DNDEBUG -Wl,--dependency-file=CMakeFiles/pi_nsga2.dir/link.d CMakeFiles/pi_nsga2.dir/src/tree_node.cpp.o CMakeFiles/pi_nsga2.dir/src/pde_problems.cpp.o CMakeFiles/pi_nsga2.dir/src/numerical_solver.cpp.o CMakeFiles/pi_nsga2.dir/src/pi_solver.cpp.o CMakeFiles/pi_nsga2.dir/main.cpp.o -o pi_nsga2  -lm -lstdc++fs -fopenmp

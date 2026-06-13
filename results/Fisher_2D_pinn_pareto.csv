@@ -1,2 +1,2 @@
-method,pde,dim,mse_domain,mse_boundary,rank
-PINN,Fisher,2,0.0000391317,0.0000000311,1
+method,pde,dim,mse_domain,mse_boundary,runtime_s,rank
+DeepXDE,Fisher,2,0.3559896732,0.3470611486,0.7929,1

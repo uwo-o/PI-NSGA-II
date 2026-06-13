@@ -2,23 +2,66 @@
 \providecommand\hyper@newdestlabel[2]{}
 \providecommand\HyField@AuxAddToFields[1]{}
 \providecommand\HyField@AuxAddToCoFields[2]{}
-\@writefile{toc}{\contentsline {section}{\numberline {1}Symbolic Optimization and Parameter Tuning}{1}{section.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {2}Convergence Analysis}{1}{section.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {3}Global Comparison (SOTA)}{1}{section.3}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {4}Parsimony and Complexity Control}{1}{section.4}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {5}Pareto Fronts (MSE Dom vs MSE BC)}{1}{section.5}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {6}Conclusion on Interpretability}{1}{section.6}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {1}{\ignorespaces PISR-NSGA-II Performance Metrics (Mean $\pm $ Std).}}{2}{table.caption.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {1}Symbolic Library and Physical Seed Templates}{1}{section.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {1.1}Orthogonal Polynomials \& Spectral Basis}{1}{subsection.1.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {1.2}Asymptotic and Singular Operators}{1}{subsection.1.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {1.3}Wave Packets, Solitons and Fluid Flows}{1}{subsection.1.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {1.4}Complex Plane Explorers}{1}{subsection.1.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {1.5}Extreme Physical Regimes}{2}{subsection.1.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {1.6}Infinite Series Operators}{2}{subsection.1.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {2}Performance Metrics}{2}{section.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {3}Global Parsimony \& Complexity}{2}{section.3}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {1}{\ignorespaces PISR-NSGA-II Performance Metrics (Mean $\pm $ Std).}}{3}{table.caption.1}\protected@file@percent }
 \providecommand*\caption@xref[2]{\@setref\relax\@undefined{#1}}
-\newlabel{tab:symbolic_stats}{{1}{2}{PISR-NSGA-II Performance Metrics (Mean $\pm $ Std)}{table.caption.1}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {2}{\ignorespaces Performance Comparison: Numerical (RK4/FDM), Neural (DeepXDE), and Symbolic (PISR-NSGA-II) Methods (Total MSE).}}{2}{table.caption.3}\protected@file@percent }
-\newlabel{tab:global_comp_stats}{{2}{2}{Performance Comparison: Numerical (RK4/FDM), Neural (DeepXDE), and Symbolic (PISR-NSGA-II) Methods (Total MSE)}{table.caption.3}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {1}{\ignorespaces Convergence History: Best Total MSE ($\mathcal  {L}_\mathrm  {dom} + \mathcal  {L}_\mathrm  {bc}$) per generation.}}{3}{figure.caption.2}\protected@file@percent }
-\newlabel{fig:convergence}{{1}{3}{Convergence History: Best Total MSE ($\mathcal {L}_\mathrm {dom} + \mathcal {L}_\mathrm {bc}$) per generation}{figure.caption.2}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {2}{\ignorespaces Parsimony Pressure: Trade-off between PDE Residual and Tree Complexity (number of nodes). Solutions on the lower-left are preferred as they provide the best balance between accuracy and interpretability.}}{4}{figure.caption.4}\protected@file@percent }
-\newlabel{fig:parsimony}{{2}{4}{Parsimony Pressure: Trade-off between PDE Residual and Tree Complexity (number of nodes). Solutions on the lower-left are preferred as they provide the best balance between accuracy and interpretability}{figure.caption.4}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {3}{\ignorespaces Pareto fronts in the objective space. PI-NSGA-II consistently pushes the frontier closer to the ideal $(0,0)$ origin across most PDEs.}}{5}{figure.caption.5}\protected@file@percent }
-\newlabel{fig:pareto}{{3}{5}{Pareto fronts in the objective space. PI-NSGA-II consistently pushes the frontier closer to the ideal $(0,0)$ origin across most PDEs}{figure.caption.5}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {3}{\ignorespaces Comparison of Symbolic Expressions (1D and 2D).}}{6}{table.caption.6}\protected@file@percent }
-\newlabel{tab:formulas}{{3}{6}{Comparison of Symbolic Expressions (1D and 2D)}{table.caption.6}{}}
-\gdef \@abspage@last{6}
+\newlabel{tab:symbolic_stats}{{1}{3}{PISR-NSGA-II Performance Metrics (Mean $\pm $ Std)}{table.caption.1}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {1}{\ignorespaces Parsimony Pressure: Trade-off between PDE Accuracy and Expression Complexity (Total node count). Complexity represents the number of mathematical elements (operators, variables, and constants) in the symbolic tree.}}{4}{figure.caption.2}\protected@file@percent }
+\newlabel{fig:parsimony}{{1}{4}{Parsimony Pressure: Trade-off between PDE Accuracy and Expression Complexity (Total node count). Complexity represents the number of mathematical elements (operators, variables, and constants) in the symbolic tree}{figure.caption.2}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {2}{\ignorespaces 3D Pareto Fronts: Physics vs. Boundary vs. Complexity. Dominated solutions are shown in transparent gray.}}{5}{figure.caption.3}\protected@file@percent }
+\newlabel{fig:pareto3d}{{2}{5}{3D Pareto Fronts: Physics vs. Boundary vs. Complexity. Dominated solutions are shown in transparent gray}{figure.caption.3}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {4}Detailed PDE Analysis}{6}{section.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.1}Airy\_1D Visualization}{6}{subsection.4.1}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {3}{\ignorespaces Symbolic vs Numerical solution for Airy\_1D.}}{6}{figure.caption.4}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {4}{\ignorespaces Pairwise Pareto Trade-offs for Airy\_1D.}}{7}{figure.caption.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.2}Airy\_2D Visualization}{8}{subsection.4.2}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {5}{\ignorespaces Symbolic vs Numerical solution for Airy\_2D.}}{8}{figure.caption.6}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {6}{\ignorespaces Pairwise Pareto Trade-offs for Airy\_2D.}}{8}{figure.caption.7}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.3}Fisher\_1D Visualization}{9}{subsection.4.3}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {7}{\ignorespaces Symbolic vs Numerical solution for Fisher\_1D.}}{9}{figure.caption.8}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {8}{\ignorespaces Pairwise Pareto Trade-offs for Fisher\_1D.}}{9}{figure.caption.9}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.4}Fisher\_2D Visualization}{10}{subsection.4.4}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {9}{\ignorespaces Symbolic vs Numerical solution for Fisher\_2D.}}{10}{figure.caption.10}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {10}{\ignorespaces Pairwise Pareto Trade-offs for Fisher\_2D.}}{10}{figure.caption.11}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.5}Duffing\_1D Visualization}{11}{subsection.4.5}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {11}{\ignorespaces Symbolic vs Numerical solution for Duffing\_1D.}}{11}{figure.caption.12}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {12}{\ignorespaces Pairwise Pareto Trade-offs for Duffing\_1D.}}{11}{figure.caption.13}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.6}Duffing\_2D Visualization}{12}{subsection.4.6}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {13}{\ignorespaces Symbolic vs Numerical solution for Duffing\_2D.}}{12}{figure.caption.14}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {14}{\ignorespaces Pairwise Pareto Trade-offs for Duffing\_2D.}}{12}{figure.caption.15}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.7}Thomas-Fermi\_1D Visualization}{13}{subsection.4.7}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {15}{\ignorespaces Symbolic vs Numerical solution for Thomas-Fermi\_1D.}}{13}{figure.caption.16}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {16}{\ignorespaces Pairwise Pareto Trade-offs for Thomas-Fermi\_1D.}}{13}{figure.caption.17}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.8}Thomas-Fermi\_2D Visualization}{14}{subsection.4.8}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {17}{\ignorespaces Symbolic vs Numerical solution for Thomas-Fermi\_2D.}}{14}{figure.caption.18}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {18}{\ignorespaces Pairwise Pareto Trade-offs for Thomas-Fermi\_2D.}}{14}{figure.caption.19}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.9}Navier-Stokes\_2D Visualization}{15}{subsection.4.9}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {19}{\ignorespaces Symbolic vs Numerical solution for Navier-Stokes\_2D.}}{15}{figure.caption.20}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {20}{\ignorespaces Pairwise Pareto Trade-offs for Navier-Stokes\_2D.}}{15}{figure.caption.21}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.10}Navier-Stokes-Unsteady\_2D Visualization}{16}{subsection.4.10}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {21}{\ignorespaces Symbolic vs Numerical solution for Navier-Stokes-Unsteady\_2D.}}{16}{figure.caption.22}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {22}{\ignorespaces Pairwise Pareto Trade-offs for Navier-Stokes-Unsteady\_2D.}}{16}{figure.caption.23}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.11}Lane-Emden\_1D Visualization}{17}{subsection.4.11}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {23}{\ignorespaces Symbolic vs Numerical solution for Lane-Emden\_1D.}}{17}{figure.caption.24}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {24}{\ignorespaces Pairwise Pareto Trade-offs for Lane-Emden\_1D.}}{17}{figure.caption.25}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.12}Troesch\_1D Visualization}{18}{subsection.4.12}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {25}{\ignorespaces Symbolic vs Numerical solution for Troesch\_1D.}}{18}{figure.caption.26}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {26}{\ignorespaces Pairwise Pareto Trade-offs for Troesch\_1D.}}{18}{figure.caption.27}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.13}Ginzburg-Landau\_1D Visualization}{19}{subsection.4.13}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {27}{\ignorespaces Symbolic vs Numerical solution for Ginzburg-Landau\_1D.}}{19}{figure.caption.28}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {28}{\ignorespaces Pairwise Pareto Trade-offs for Ginzburg-Landau\_1D.}}{19}{figure.caption.29}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.14}Painleve-I\_1D Visualization}{20}{subsection.4.14}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {29}{\ignorespaces Symbolic vs Numerical solution for Painleve-I\_1D.}}{20}{figure.caption.30}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {30}{\ignorespaces Pairwise Pareto Trade-offs for Painleve-I\_1D.}}{20}{figure.caption.31}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {5}Discovered Formulas}{21}{section.5}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {2}{\ignorespaces Comparison of Symbolic Expressions (1D and 2D).}}{22}{table.caption.32}\protected@file@percent }
+\newlabel{tab:formulas}{{2}{22}{Comparison of Symbolic Expressions (1D and 2D)}{table.caption.32}{}}
+\gdef \@abspage@last{22}

@@ -11,6 +11,28 @@
 #include <chrono>
 #include <omp.h>
 #include <iomanip>
+#include <numeric>
+
+// ─── Inicialización de Parámetros Globales ──────────────────────────────────
+namespace Config {
+    int    POP_SIZE       = 200;   
+    int    MAX_GEN        = 300;   
+    int    N_DOMAIN       = 2000;  
+    int    N_BOUNDARY     = 500;   
+    double ERC_SIGMA      = 0.20;  
+    int    MAX_TREE_DEPTH = 6;
+    double CROSSOVER_PROB = 0.80;  
+    double MUTATION_PROB  = 0.45;   
+    int    TOURNAMENT_SIZE = 4;    
+    double STOP_THRESHOLD  = 1e-7; 
+
+    int    RAR_INTERVAL       = 25;
+    int    RAR_CANDIDATES     = 10000;
+    double RAR_ADAPTIVE_RATIO = 0.30;
+    int    RAR_ELITE_COUNT    = 8;
+    double RAR_RANDOM_RATIO   = 0.25;
+    int    CORES              = 1;
+}
 
 // ─── PIIndividual::evaluate ───────────────────────────────────────────────────
 void PIIndividual::evaluate(const PDEProblem& prob, 
@@ -18,39 +40,81 @@ void PIIndividual::evaluate(const PDEProblem& prob,
                             const std::vector<Point>& bnd, 
                             int current_gen) 
 {
-    if (!tree) { mse_domain = 1e18; mse_boundary = 1e18; return; }
+    if (!tree) { 
+        is_feasible = false; constraint_violation = 1.0;
+        mse_domain = 1e18; mse_boundary = 1e18; return; 
+    }
 
+    is_feasible = true;
+    constraint_violation = 0.0;
+
+    // ─── RESTRICCIONES DURAS (No afectan al error) ──────────────────────────
+    
+    // 1. Restricción de No-Trivialidad Estructural (Básica)
+    if (!tree->contains_variables()) {
+        is_feasible = false;
+        constraint_violation += 1.0;
+    }
+    
+    // 2. Requerimiento de Variables (Relajado: Filtro POST)
+
+    // 3. Restricción Dimensional Semi-Dura (Buckingham Pi)
+    if (!prob.is_numerical && !(prob.dim_u == Units::None)) {
+        auto d_opt = tree->get_dimension(prob);
+        if (!d_opt.has_value() || *d_opt != prob.dim_u) {
+            constraint_violation += 0.3;
+        }
+    }
+
+    // 4. Restricción de No-Anidamiento Prolongado (ESTRICTA)
+    // Se limita la profundidad de funciones unarias a 3 niveles.
+    if (tree->get_unary_depth() > 3) {
+        is_feasible = false;
+        constraint_violation += 1.0;
+    }
+
+    // ─── Evaluación de Dinámica y Varianza ───
     double pde_mse = 0.0;
+    std::vector<double> sample_values;
+    sample_dom_variance = 0.0;
+    double max_grad = 0.0;
+
     if (prob.type == PDE::NAVIER_STOKES_UNSTEADY) {
+        // ... (NS Unsteady eval) ...
         double nu = prob.k2;
         double h = 0.01; double ht = 0.01;
         for (auto& p : dom) {
             AD ad_c = tree->ad_eval_t(p.x, p.y, p.t, prob.dim);
-            double psi_x = ad_c.dx.real(), psi_y = ad_c.dy.real();
-            double u = psi_y, v = -psi_x;
-            double w = -(ad_c.dxx + ad_c.dyy).real(); 
+            sample_values.push_back(ad_c.v.real());
+            max_grad = std::max({max_grad, std::abs(ad_c.dx.real()), std::abs(ad_c.dy.real()), std::abs(ad_c.dt.real())});
+            
+            Complex psi_x = ad_c.dx, psi_y = ad_c.dy;
+            Complex u = psi_y, v = -psi_x;
+            Complex w = -(ad_c.dxx + ad_c.dyy); 
+            // ... (rest of NS Unsteady) ...
 
             AD ad_xp = tree->ad_eval_t(p.x+h, p.y, p.t, prob.dim);
             AD ad_xm = tree->ad_eval_t(p.x-h, p.y, p.t, prob.dim);
             AD ad_yp = tree->ad_eval_t(p.x, p.y+h, p.t, prob.dim);
             AD ad_ym = tree->ad_eval_t(p.x, p.y-h, p.t, prob.dim);
 
-            double w_xp = -(ad_xp.dxx + ad_xp.dyy).real();
-            double w_xm = -(ad_xm.dxx + ad_xm.dyy).real();
-            double w_yp = -(ad_yp.dxx + ad_yp.dyy).real();
-            double w_ym = -(ad_ym.dxx + ad_ym.dyy).real();
-            double w_x = (w_xp - w_xm) / (2.0 * h);
-            double w_y = (w_yp - w_ym) / (2.0 * h);
-            double lap_w = (w_xp + w_xm + w_yp + w_ym - 4.0 * w) / (h * h);
+            Complex w_xp = -(ad_xp.dxx + ad_xp.dyy);
+            Complex w_xm = -(ad_xm.dxx + ad_xm.dyy);
+            Complex w_yp = -(ad_yp.dxx + ad_yp.dyy);
+            Complex w_ym = -(ad_ym.dxx + ad_ym.dyy);
+            Complex w_x = (w_xp - w_xm) / (2.0 * h);
+            Complex w_y = (w_yp - w_ym) / (2.0 * h);
+            Complex lap_w = (w_xp + w_xm + w_yp + w_ym - 4.0 * w) / (h * h);
             
             AD ad_tp = tree->ad_eval_t(p.x, p.y, p.t+ht, prob.dim);
             AD ad_tm = tree->ad_eval_t(p.x, p.y, p.t-ht, prob.dim);
-            double w_tp = -(ad_tp.dxx + ad_tp.dyy).real();
-            double w_tm = -(ad_tm.dxx + ad_tm.dyy).real();
-            double w_t = (w_tp - w_tm) / (2.0 * ht);
+            Complex w_tp = -(ad_tp.dxx + ad_tp.dyy);
+            Complex w_tm = -(ad_tm.dxx + ad_tm.dyy);
+            Complex w_t = (w_tp - w_tm) / (2.0 * ht);
 
             Complex res = w_t + u * w_x + v * w_y - nu * lap_w;
             if (!std::isfinite(res.real()) || !std::isfinite(res.imag())) {
+                is_feasible = false; constraint_violation += 10.0;
                 mse_domain = 1e18; mse_boundary = 1e18; return;
             }
             pde_mse += std::norm(res);
@@ -60,18 +124,22 @@ void PIIndividual::evaluate(const PDEProblem& prob,
         double nu = prob.k2; double h = 0.01;
         for (auto& p : dom) {
             AD ad_c = tree->ad_eval_t(p.x, p.y, p.t, prob.dim);
-            double psi_x = ad_c.dx.real(), psi_y = ad_c.dy.real();
-            double L_val = (ad_c.dxx + ad_c.dyy).real();
+            sample_values.push_back(ad_c.v.real());
+            max_grad = std::max({max_grad, std::abs(ad_c.dx.real()), std::abs(ad_c.dy.real())});
+
+            Complex psi_x = ad_c.dx, psi_y = ad_c.dy;
+            Complex L_val = (ad_c.dxx + ad_c.dyy);
             AD ad_xp = tree->ad_eval_t(p.x+h, p.y, p.t, prob.dim);
             AD ad_xm = tree->ad_eval_t(p.x-h, p.y, p.t, prob.dim);
             AD ad_yp = tree->ad_eval_t(p.x, p.y+h, p.t, prob.dim);
             AD ad_ym = tree->ad_eval_t(p.x, p.y-h, p.t, prob.dim);
-            double L_x = ((ad_xp.dxx + ad_xp.dyy).real() - (ad_xm.dxx + ad_xm.dyy).real()) / (2.0*h);
-            double L_y = ((ad_yp.dxx + ad_yp.dyy).real() - (ad_ym.dxx + ad_ym.dyy).real()) / (2.0*h);
-            double biharmonic = ((ad_xp.dxx + ad_xp.dyy).real() + (ad_xm.dxx + ad_xm.dyy).real() + 
-                                 (ad_yp.dxx + ad_yp.dyy).real() + (ad_ym.dxx + ad_ym.dyy).real() - 4.0*L_val) / (h*h);
-            Complex res = Complex(psi_y * L_x - psi_x * L_y - nu * biharmonic, 0.0);
+            Complex L_x = ((ad_xp.dxx + ad_xp.dyy) - (ad_xm.dxx + ad_xm.dyy)) / (2.0*h);
+            Complex L_y = ((ad_yp.dxx + ad_yp.dyy) - (ad_ym.dxx + ad_ym.dyy)) / (2.0*h);
+            Complex biharmonic = ((ad_xp.dxx + ad_xp.dyy) + (ad_xm.dxx + ad_xm.dyy) + 
+                                 (ad_yp.dxx + ad_yp.dyy) + (ad_ym.dxx + ad_ym.dyy) - 4.0*L_val) / (h*h);
+            Complex res = psi_y * L_x - psi_x * L_y - nu * biharmonic;
             if (!std::isfinite(res.real()) || !std::isfinite(res.imag())) {
+                is_feasible = false; constraint_violation += 10.0;
                 mse_domain = 1e18; mse_boundary = 1e18; return;
             }
             pde_mse += std::norm(res);
@@ -80,8 +148,12 @@ void PIIndividual::evaluate(const PDEProblem& prob,
     } else {
         for (auto& p : dom) {
             AD ad = tree->ad_eval_t(p.x, p.y, p.t, prob.dim);
-            Complex res = prob.pde_residual_ad(ad, p.x, p.y);
+            sample_values.push_back(ad.v.real());
+            max_grad = std::max({max_grad, std::abs(ad.dx.real()), std::abs(ad.dy.real()), std::abs(ad.dt.real())});
+            
+            Complex res = prob.pde_residual_ad(ad, p.x, p.y, p.t);
             if (!std::isfinite(res.real()) || !std::isfinite(res.imag())) {
+                is_feasible = false; constraint_violation += 10.0;
                 mse_domain = 1e18; mse_boundary = 1e18; return;
             }
             pde_mse += std::norm(res); 
@@ -89,12 +161,34 @@ void PIIndividual::evaluate(const PDEProblem& prob,
         if (!dom.empty()) pde_mse /= dom.size();
     }
 
+    // 5. Restricción de Pendiente (Smoothness Check)
+    // Evita saltos artificiales para cumplir BCs
+    if (max_grad > 500.0) {
+        is_feasible = false;
+        constraint_violation += 1.0;
+    }
+
+    // 6. Restricción de No-Trivialidad Funcional (Varianza)
+    if (!sample_values.empty()) {
+        double sum = std::accumulate(sample_values.begin(), sample_values.end(), 0.0);
+        double mean = sum / sample_values.size();
+        double sq_sum = std::inner_product(sample_values.begin(), sample_values.end(), sample_values.begin(), 0.0);
+        sample_dom_variance = std::abs((sq_sum / sample_values.size()) - (mean * mean));
+        
+        // Umbral adaptativo
+        if (sample_dom_variance < (1e-12 * mean * mean + 1e-15)) {
+            is_feasible = false;
+            constraint_violation += 1.0;
+        }
+    }
+
     double raw_bc_mse = 0.0;
     for (auto& p : bnd) {
         Complex val = tree->eval_t(p.x, p.y, p.t);
-        Complex bc_val = prob.bc(p.x, p.y);
+        Complex bc_val = prob.bc(p.x, p.y, p.t);
         Complex diff = val - bc_val;
         if (!std::isfinite(diff.real()) || !std::isfinite(diff.imag())) {
+            is_feasible = false; constraint_violation += 10.0;
             mse_domain = 1e18; mse_boundary = 1e18; return;
         }
         raw_bc_mse += std::norm(diff);
@@ -104,20 +198,9 @@ void PIIndividual::evaluate(const PDEProblem& prob,
     tree_size = tree->count_nodes();
     root_type = tree->get_type();
 
-    double max_p = 1000.0;
-    double current_p = 1.0 + (max_p - 1.0) * std::min(1.0, (double)current_gen / 100.0);
-    
-    double dim_penalty = 1.0;
-    if (!prob.is_numerical) {
-        auto d_opt = tree->get_dimension(prob);
-        if (!d_opt.has_value() || *d_opt != prob.dim_u) {
-            dim_penalty = current_p; 
-        }
-    }
-
-    // Puro Pareto NSGA-II (3 Objetivos: Dominio, Frontera, Complejidad)
-    mse_domain = pde_mse * dim_penalty; 
-    mse_boundary = raw_bc_mse * dim_penalty; 
+    // Puro Pareto NSGA-II
+    mse_domain = pde_mse; 
+    mse_boundary = raw_bc_mse; 
 }
 
 double PIIndividual::get_validation_mse(const PDEProblem& prob, 
@@ -206,7 +289,7 @@ double PIIndividual::get_validation_mse(const PDEProblem& prob,
     } else {
         for (auto& p : val_dom) {
             AD ad = tree->ad_eval_t(p.x, p.y, p.t, prob.dim);
-            Complex res = prob.pde_residual_ad(ad, p.x, p.y);
+            Complex res = prob.pde_residual_ad(ad, p.x, p.y, p.t);
             if (!std::isfinite(res.real()) || !std::isfinite(res.imag())) return 1e18;
             sum_dom += std::norm(res);
         }
@@ -214,7 +297,8 @@ double PIIndividual::get_validation_mse(const PDEProblem& prob,
     double sum_bnd = 0.0;
     for (auto& p : val_bnd) {
         Complex val = tree->eval_t(p.x, p.y, p.t);
-        Complex bc_val = prob.bc(p.x, p.y);
+        Complex bc_val = prob.bc(p.x, p.y, p.t);
+        if (!std::isfinite(bc_val.real())) return 1e18;
         Complex diff = val - bc_val;
         if (!std::isfinite(diff.real()) || !std::isfinite(diff.imag())) return 1e18;
         sum_bnd += std::norm(diff);
@@ -222,7 +306,6 @@ double PIIndividual::get_validation_mse(const PDEProblem& prob,
     if (!val_dom.empty()) sum_dom /= val_dom.size();
     if (!val_bnd.empty()) sum_bnd /= val_bnd.size();
 
-    // Para validación/selección del "Best Ever", usamos suma simple sin pesos
     return sum_dom + sum_bnd; 
 }
 
@@ -230,6 +313,7 @@ double PIIndividual::get_validation_mse(const PDEProblem& prob,
 PISolver::PISolver(const PDEProblem& prob, unsigned seed)
     : prob_(prob), gen_(seed)
 {
+    priors_ = probe_priors(prob_);
     dom_pts_ = prob_.domain_points(Config::N_DOMAIN);
     bnd_pts_ = prob_.boundary_points(Config::N_BOUNDARY);
     int n_val = (prob.dim == 1) ? 200 : 400;
@@ -239,14 +323,14 @@ PISolver::PISolver(const PDEProblem& prob, unsigned seed)
 
 PIIndividual PISolver::random_individual() {
     PIIndividual ind;
-    ind.tree = random_tree(Config::MAX_TREE_DEPTH, gen_);
+    ind.tree = random_tree(Config::MAX_TREE_DEPTH, gen_, prob_);
     ind.evaluate(prob_, dom_pts_, bnd_pts_, current_gen_);
     return ind;
 }
 
 PIIndividual PISolver::random_individual_special() {
     PIIndividual ind;
-    ind.tree = random_tree_special(Config::MAX_TREE_DEPTH, gen_, prob_);
+    ind.tree = random_tree_special(Config::MAX_TREE_DEPTH, gen_, prob_, priors_);
     ind.evaluate(prob_, dom_pts_, bnd_pts_, current_gen_);
     return ind;
 }
@@ -277,9 +361,7 @@ PIIndividual PISolver::make_offspring(const PIIndividual& a, const PIIndividual&
 
 void PISolver::update_hall_of_fame() {
     for (auto& ind : population_) {
-        // Filtro de Viabilidad: Para ser "Best Ever", la frontera debe estar anclada
-        // Esto evita que soluciones triviales (u=0) secuestren el reporte.
-        if (ind.rank == 1 && ind.mse_boundary < 0.05) {
+        if (ind.rank == 1 && ind.mse_boundary < 0.05 && ind.tree_size > 3 && ind.is_feasible) {
             double v_mse = ind.get_validation_mse(prob_, val_dom_pts_, val_bnd_pts_);
             if (!has_best_ever_ || v_mse < best_ever_.mse_domain) {
                 best_ever_.mse_domain = v_mse; 
@@ -296,58 +378,112 @@ void PISolver::update_hall_of_fame() {
     }
 }
 
+
+Point PISolver::generate_random_point() {
+    std::uniform_real_distribution<double> dist(0.0, 1.0);
+    double t_val = (prob_.type == PDE::NAVIER_STOKES_UNSTEADY) ? dist(gen_) : 0.0;
+    if (prob_.dim == 1) {
+        // Malla de Chebyshev (Gauss-Lobatto) para clavar los bordes en 1D
+        double u = dist(gen_);
+        double x_cheb = 0.5 * (1.0 - std::cos(M_PI * u));
+        return {x_cheb, 0.0, t_val};
+    }
+    return {dist(gen_), dist(gen_), t_val};
+}
+
+void PISolver::apply_committee_rar() {
+    if (population_.empty()) return;
+    std::vector<PIIndividual*> committee;
+    std::vector<PIIndividual*> elites;
+    for (auto& ind : population_) if (ind.rank == 1) elites.push_back(&ind);
+    std::sort(elites.begin(), elites.end(), [](PIIndividual* a, PIIndividual* b){
+        return a->mse_domain < b->mse_domain;
+    });
+    for (int i = 0; i < std::min((int)elites.size(), Config::RAR_ELITE_COUNT); ++i) committee.push_back(elites[i]);
+
+    int n_random = (int)(population_.size() * Config::RAR_RANDOM_RATIO);
+    std::vector<int> indices(population_.size());
+    std::iota(indices.begin(), indices.end(), 0);
+    std::shuffle(indices.begin(), indices.end(), gen_);
+    for (int i = 0; i < std::min(n_random, (int)indices.size()); ++i) committee.push_back(&population_[indices[i]]);
+
+    if (committee.empty()) return;
+
+    int pool_size = Config::RAR_CANDIDATES;
+    struct ScoredPoint { Point p; double score; };
+    std::vector<ScoredPoint> scored;
+    scored.reserve(pool_size);
+
+    #pragma omp parallel
+    {
+        std::mt19937 thread_gen(gen_() + omp_get_thread_num());
+        std::uniform_real_distribution<double> ud(0, 1);
+        std::vector<ScoredPoint> thread_scored;
+        #pragma omp for
+        for (int i = 0; i < pool_size; ++i) {
+            double tx = ud(thread_gen), ty = ud(thread_gen);
+            double tt = (prob_.type == PDE::NAVIER_STOKES_UNSTEADY) ? ud(thread_gen) : 0.0;
+            Point p = {tx, ty, tt};
+            double sum_error = 0.0; int valid_count = 0;
+            for (auto* ind : committee) {
+                if (!ind->tree) continue;
+                AD ad = ind->tree->ad_eval_t(p.x, p.y, p.t, prob_.dim);
+                Complex res = prob_.pde_residual_ad(ad, p.x, p.y, p.t);
+                double err = std::norm(res);
+                if (std::isfinite(err)) { sum_error += err; valid_count++; }
+            }
+            double consensus_score = (valid_count > 0) ? (sum_error / valid_count) : 0.0;
+            if (std::isfinite(consensus_score)) thread_scored.push_back({p, consensus_score});
+        }
+        #pragma omp critical
+        scored.insert(scored.end(), thread_scored.begin(), thread_scored.end());
+    }
+    std::sort(scored.begin(), scored.end(), [](const ScoredPoint& a, const ScoredPoint& b){ return a.score > b.score; });
+
+    int n_total = (prob_.dim == 1) ? Config::N_DOMAIN : 4000;
+    int n_adaptive = (int)(n_total * Config::RAR_ADAPTIVE_RATIO);
+    int n_uniform = n_total - n_adaptive;
+    dom_pts_.clear();
+    for (int i = 0; i < std::min(n_adaptive, (int)scored.size()); ++i) dom_pts_.push_back(scored[i].p);
+    for (int i = 0; i < n_uniform; ++i) dom_pts_.push_back(generate_random_point());
+}
+
 std::vector<PIIndividual> PISolver::run(int pop_size, int max_gen) {
     population_.clear();
     has_best_ever_ = false;
-    cataclysm_count_ = 0;
-    stagnation_counter_ = 0;
-
     std::uniform_real_distribution<double> dist(0.0, 1.0);
 
     auto gen_pts = [&]() {
-        dom_pts_.clear();
-        bnd_pts_.clear();
+        dom_pts_.clear(); bnd_pts_.clear();
         if (prob_.dim == 1) {
-            for (int i = 0; i < Config::N_DOMAIN; ++i)
-                dom_pts_.push_back({dist(gen_), 0.0, dist(gen_)});
-            // 50 puntos en los bordes para equilibrar el peso estadístico en 1D
-            for (int i = 0; i < 25; ++i) {
-                bnd_pts_.push_back({0.0, 0.0, dist(gen_)});
-                bnd_pts_.push_back({1.0, 0.0, dist(gen_)});
+            for (int i = 0; i < Config::N_DOMAIN; ++i) dom_pts_.push_back({dist(gen_), 0.0, (prob_.type == PDE::NAVIER_STOKES_UNSTEADY ? dist(gen_) : 0.0)});
+            for (int i = 0; i < 100; ++i) {
+                double t_val = (prob_.type == PDE::NAVIER_STOKES_UNSTEADY) ? dist(gen_) : 0.0;
+                bnd_pts_.push_back({0.0, 0.0, t_val}); bnd_pts_.push_back({1.0, 0.0, t_val});
+                if (prob_.type == PDE::NAVIER_STOKES_UNSTEADY) bnd_pts_.push_back({dist(gen_), 0.0, 0.0});
             }
         } else {
-            for (int i = 0; i < Config::N_DOMAIN; ++i)
-                dom_pts_.push_back({dist(gen_), dist(gen_), dist(gen_)});
+            for (int i = 0; i < 4000; ++i) dom_pts_.push_back({dist(gen_), dist(gen_), (prob_.type == PDE::NAVIER_STOKES_UNSTEADY ? dist(gen_) : 0.0)});
             int pts_per_side = Config::N_BOUNDARY / 5;
             for (int i = 0; i < pts_per_side; ++i) {
-                double t_pt = dist(gen_);
-                double s_pt = dist(gen_);
-                bnd_pts_.push_back({0.0, s_pt, t_pt});
-                bnd_pts_.push_back({1.0, s_pt, t_pt});
-                bnd_pts_.push_back({s_pt, 0.0, t_pt});
-                bnd_pts_.push_back({s_pt, 1.0, t_pt});
-                bnd_pts_.push_back({dist(gen_), dist(gen_), 0.0}); 
+                double s = dist(gen_), t = (prob_.type == PDE::NAVIER_STOKES_UNSTEADY ? dist(gen_) : 0.0);
+                bnd_pts_.push_back({0.0, s, t}); bnd_pts_.push_back({1.0, s, t});
+                bnd_pts_.push_back({s, 0.0, t}); bnd_pts_.push_back({s, 1.0, t});
+                if (prob_.type == PDE::NAVIER_STOKES_UNSTEADY) bnd_pts_.push_back({dist(gen_), dist(gen_), 0.0});
             }
         }
     };
-
     gen_pts();
 
     NodePtr exact_tree = get_exact_solution_tree(prob_);
-    
     for (int i = 0; i < pop_size; ++i) {
         PIIndividual ind;
-        if (i < pop_size / 3 && exact_tree) {
-            // Tercio 1: La solución exacta/semilla específica
-            ind.tree = exact_tree->clone();
-        } else if (i < (2 * pop_size) / 3) {
-            // Tercio 2: Las 28 plantillas de física avanzada
-            ind.tree = random_tree_special(Config::MAX_TREE_DEPTH, gen_, prob_);
-        } else {
-            // Tercio 3: Exploración aleatoria pura
-            ind.tree = random_tree(Config::MAX_TREE_DEPTH, gen_);
-        }
-        ind.evaluate(prob_, dom_pts_, bnd_pts_, current_gen_);
+        if (i < pop_size / 10 && exact_tree) ind.tree = exact_tree->clone();
+        else if (i < pop_size / 2) ind.tree = random_tree_special(Config::MAX_TREE_DEPTH, gen_, prob_, priors_);
+        else ind.tree = random_tree(Config::MAX_TREE_DEPTH, gen_, prob_);
+        
+        if (ind.tree) ind.tree = ind.tree->simplify();
+        ind.evaluate(prob_, dom_pts_, bnd_pts_, 0);
         population_.push_back(std::move(ind));
     }
 
@@ -360,71 +496,79 @@ std::vector<PIIndividual> PISolver::run(int pop_size, int max_gen) {
 
     for (int g = 0; g < max_gen; ++g) {
         current_gen_ = g;
-        if (g > 0 && g % 20 == 0) {
-            gen_pts();
+        if (g > 0 && g % Config::RAR_INTERVAL == 0) {
+            apply_committee_rar();
             #pragma omp parallel for
-            for (size_t i = 0; i < population_.size(); ++i) {
-                population_[i].evaluate(prob_, dom_pts_, bnd_pts_, current_gen_);
-            }
+            for (size_t i = 0; i < population_.size(); ++i) population_[i].evaluate(prob_, dom_pts_, bnd_pts_, current_gen_);
         }
-
         update_hall_of_fame();
 
-        last_best_mse_ = best_ever_.mse_domain;
-
         std::vector<PIIndividual> offspring;
-
-        offspring.reserve(pop_size);
-        
         if (has_best_ever_) {
-            PIIndividual elite;
-            elite.tree = best_ever_.tree->clone();
+            PIIndividual elite; elite.tree = best_ever_.tree->clone();
             elite.evaluate(prob_, dom_pts_, bnd_pts_, current_gen_);
             offspring.push_back(std::move(elite));
         }
-
         while ((int)offspring.size() < pop_size) {
-            int p1 = tournament_select(population_, gen_);
-            int p2 = tournament_select(population_, gen_);
-            PIIndividual child = make_offspring(population_[p1], population_[p2]);
-            offspring.push_back(std::move(child));
+            int p1 = tournament_select(population_, gen_), p2 = tournament_select(population_, gen_);
+            offspring.push_back(make_offspring(population_[p1], population_[p2]));
         }
-
         #pragma omp parallel for
         for (size_t i = 0; i < offspring.size(); ++i) {
+            if (offspring[i].tree) offspring[i].tree = offspring[i].tree->simplify();
             offspring[i].evaluate(prob_, dom_pts_, bnd_pts_, current_gen_);
         }
 
-        std::vector<PIIndividual> combined;
-        combined.reserve(population_.size() + offspring.size());
-        for (auto& p : population_) combined.push_back(std::move(p));
+        std::vector<PIIndividual> combined = std::move(population_);
         for (auto& o : offspring) combined.push_back(std::move(o));
+        
+        if (g == max_gen - 1) {
+            // En la última generación, devolvemos el conjunto combinado (2N) 
+            // antes de podarlo, para que el CSV tenga soluciones dominadas.
+            // Como Ind no es copiable (unique_ptr), clonamos.
+            std::vector<PIIndividual> last_pop;
+            for (const auto& ind : combined) {
+                PIIndividual copy;
+                copy.mse_domain = ind.mse_domain; copy.mse_boundary = ind.mse_boundary;
+                copy.rank = ind.rank; copy.crowding = ind.crowding; copy.tree_size = ind.tree_size;
+                copy.is_feasible = ind.is_feasible;
+                if (ind.tree) copy.tree = ind.tree->clone();
+                last_pop.push_back(std::move(copy));
+            }
+            return last_pop;
+        }
+
         population_ = nsga2_select_next(std::move(combined), pop_size);
+        update_hall_of_fame();
 
-        // ─── ESTRATEGIA MEMÉTICA INTENSIVA ──────────────────────────────────
-        // Cada 10 generaciones, el Top 5% del frente de Pareto recibe entrenamiento pesado
-        if (g > 0 && g % 10 == 0) {
-            int n_elite = std::max(1, (int)(pop_size * 0.05));
-            #pragma omp parallel for
-            for (int i = 0; i < n_elite; ++i) {
-                hill_climb_constants(population_[i], 500); // 10 veces más iteraciones
+        // Early Stopping: Si el error es menor a 1e-14 y la solución no es constante
+        if (has_best_ever_ && best_ever_.is_feasible && (best_ever_.mse_domain + best_ever_.mse_boundary < 1e-14)) {
+            if (best_ever_.tree && best_ever_.tree->contains_variables()) {
+                std::cout << "[INFO] Early stopping en gen=" << g << " (Solucion No-Trivial, MSE < 1e-14)" << std::endl;
+                // Clonamos la población actual para devolverla
+                std::vector<PIIndividual> last_pop;
+                for (const auto& ind : population_) {
+                    PIIndividual copy;
+                    copy.mse_domain = ind.mse_domain; copy.mse_boundary = ind.mse_boundary;
+                    copy.rank = ind.rank; copy.crowding = ind.crowding; copy.tree_size = ind.tree_size;
+                    copy.is_feasible = ind.is_feasible;
+                    if (ind.tree) copy.tree = ind.tree->clone();
+                    last_pop.push_back(std::move(copy));
+                }
+                return last_pop;
             }
-        } else {
-            // Hill Climbing estándar para el top 20% en generaciones normales
-            int n_hc = pop_size * 0.20;
-            #pragma omp parallel for
+        }
+
+        // Memetic HC (Explotación Intensiva)
+        int n_hc = (int)(pop_size * 0.20);
+        #pragma omp parallel
+        {
+            std::mt19937& t_gen = gen_thread[omp_get_thread_num() % n_threads];
+            #pragma omp for
             for (int i = 0; i < n_hc; ++i) {
-                hill_climb_constants(population_[i], 50);
+                hill_climb_constants(population_[i], (g % 10 == 0 ? 150 : 40), t_gen);
             }
         }
-
-        double current_best_train = 1e18;
-        for (auto& ind : population_) {
-            if (ind.rank == 1) current_best_train = std::min(current_best_train, ind.mse_domain);
-        }
-
-        double b_tot = has_best_ever_ ? best_ever_.mse_domain : current_best_train;
-        history_.push_back({g, 0.0, 0.0, b_tot});
 
         if (g % 25 == 0) {
             double b_dom = 1e18, b_bnd = 1e18;
@@ -440,28 +584,6 @@ std::vector<PIIndividual> PISolver::run(int pop_size, int max_gen) {
                       << "  best_bnd=" << b_bnd 
                       << "  (val_best=" << v_mse << ")" << std::defaultfloat << "\n";
         }
-
-        double stop_threshold = Config::STOP_THRESHOLD;
-        if (prob_.is_numerical) stop_threshold = 1e-4; 
-
-        if (current_best_train < stop_threshold) {
-            std::cout << "  [!] Convergencia alcanzada (MSE=" << current_best_train
-                      << "). Terminando en gen " << g << ".\n";
-            break;
-        }
-
-        double b_dom_cur = 1e18, b_bnd_cur = 1e18;
-        for (auto& ind : population_) {
-            if (ind.rank == 1) {
-                b_dom_cur = std::min(b_dom_cur, ind.mse_domain);
-                b_bnd_cur = std::min(b_bnd_cur, ind.mse_boundary);
-            }
-        }
-        if (b_dom_cur < 1e-12 && b_bnd_cur < 1e-12) {
-            std::cout << "  [!] Solución perfecta (dom=" << b_dom_cur
-                      << ", bnd=" << b_bnd_cur << "). Terminando en gen " << g << ".\n";
-            break;
-        }
     }
     return std::move(population_);
 }
@@ -469,62 +591,68 @@ std::vector<PIIndividual> PISolver::run(int pop_size, int max_gen) {
 std::vector<PIIndividual> PISolver::pareto_front() const {
     std::vector<PIIndividual> front;
     for (auto& ind : population_) {
-        if (ind.rank == 1) {
-            PIIndividual copy;
-            copy.mse_domain = ind.mse_domain;
-            copy.mse_boundary = ind.mse_boundary;
-            copy.rank = ind.rank;
-            copy.crowding = ind.crowding;
-            copy.tree_size = ind.tree_size;
-            copy.root_type = ind.root_type;
-            if (ind.tree) copy.tree = ind.tree->clone();
-            front.push_back(std::move(copy));
+        if (ind.rank == 1 && ind.is_feasible) {
+            // Filtro Post-Evolución de Variables
+            bool vars_ok = true;
+            if (prob_.dim >= 2) {
+                if (!ind.tree->uses_variable(NodeType::VAR_X) || !ind.tree->uses_variable(NodeType::VAR_Y)) vars_ok = false;
+            }
+            if (prob_.type == PDE::NAVIER_STOKES_UNSTEADY) {
+                if (!ind.tree->uses_variable(NodeType::VAR_T)) vars_ok = false;
+            }
+
+            if (vars_ok) {
+                PIIndividual copy;
+                copy.mse_domain = ind.mse_domain; copy.mse_boundary = ind.mse_boundary;
+                copy.rank = ind.rank; copy.crowding = ind.crowding; copy.tree_size = ind.tree_size;
+                copy.is_feasible = ind.is_feasible;
+                if (ind.tree) copy.tree = ind.tree->clone();
+                front.push_back(std::move(copy));
+            }
         }
     }
     return front;
 }
 
-// ─── Optimización Local de Alta Precisión (Coordinate HC + Lexicographical) ─────
-void PISolver::hill_climb_constants(PIIndividual& ind, int iterations) {
+void PISolver::hill_climb_constants(PIIndividual& ind, int iterations, std::mt19937& thread_gen) {
     if (!ind.tree) return;
-    std::vector<Complex*> ercs;
-    ind.tree->collect_ercs(ercs);
+    std::vector<Complex*> ercs; ind.tree->collect_ercs(ercs);
     if (ercs.empty()) return;
-
-    int M = ercs.size();
-    // Prioridad: bajar frontera si es muy alta (> 1e-4)
+    
     double boundary_threshold = 1e-4;
 
     for (int iter = 0; iter < iterations; ++iter) {
-        // En cada iteración, elegimos una constante al azar para pulir (Coordinate Descent stochastico)
-        int i = std::uniform_int_distribution<int>(0, M - 1)(gen_);
-        
-        double best_dom = ind.mse_domain;
-        double best_bnd = ind.mse_boundary;
+        int i = std::uniform_int_distribution<int>(0, ercs.size() - 1)(thread_gen);
+        double best_dom = ind.mse_domain, best_bnd = ind.mse_boundary;
         Complex best_val = *ercs[i];
-
-        // Paso adaptativo: buscamos con sigma variable
-        double sigma = Config::ERC_SIGMA * (1.0 - (double)iter / iterations);
-        std::normal_distribution<double> step_dist(0.0, sigma);
         
-        *ercs[i] = best_val + step_dist(gen_);
+        double sigma = Config::ERC_SIGMA * (1.0 - (double)iter / iterations);
+        std::normal_distribution<double> step(0.0, sigma);
+        *ercs[i] = best_val + Complex(step(thread_gen), step(thread_gen));
         ind.evaluate(prob_, dom_pts_, bnd_pts_, current_gen_);
-
+        
         bool accept = false;
-        // Lógica Lexicográfica:
         if (best_bnd > boundary_threshold) {
-            // Si la frontera es mala, SOLO aceptamos si mejora la frontera
             if (ind.mse_boundary < best_bnd) accept = true;
         } else {
-            // Si la frontera es buena, aceptamos si baja el error total (Puro Pareto)
             if (ind.mse_domain + ind.mse_boundary < best_dom + best_bnd) accept = true;
         }
 
         if (!accept || !std::isfinite(ind.mse_domain)) {
-            *ercs[i] = best_val;
-            ind.mse_domain = best_dom;
-            ind.mse_boundary = best_bnd;
+            *ercs[i] = best_val; ind.mse_domain = best_dom; ind.mse_boundary = best_bnd;
         }
     }
+}
+
+void PISolver::polish_constants(PIIndividual& ind) {
+    if (!ind.tree) return;
+    std::vector<Complex*> ercs; ind.tree->collect_ercs(ercs);
+    if (ercs.empty()) return;
+    std::cout << "  [Optimizer] Polishing " << ercs.size() << " constants...\n";
+    double orig = Config::ERC_SIGMA;
+    Config::ERC_SIGMA = 0.5; hill_climb_constants(ind, 1000, gen_);
+    Config::ERC_SIGMA = 0.05; hill_climb_constants(ind, 1000, gen_);
+    Config::ERC_SIGMA = 0.001; hill_climb_constants(ind, 500, gen_);
+    Config::ERC_SIGMA = orig;
     ind.evaluate(prob_, dom_pts_, bnd_pts_, current_gen_);
 }

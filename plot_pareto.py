@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-plot_pareto.py — Publication-quality Pareto analysis
-Muestra Media ± Std y Winner en la consola.
+plot_pareto.py — Pairwise Pareto front analysis for PISR-NSGA-II
+Generates 3-way trade-off plots: Domain vs Boundary, Domain vs Complexity, Boundary vs Complexity.
 """
 import os, glob, warnings
 import numpy as np
@@ -12,84 +12,100 @@ import matplotlib.pyplot as plt
 matplotlib.use("Agg")
 matplotlib.rcParams.update({
     "font.family":       "DejaVu Sans",
-    "font.size":         10,
-    "axes.titlesize":    11,
-    "axes.labelsize":    10,
-    "legend.fontsize":   9,
-    "xtick.labelsize":   9,
-    "ytick.labelsize":   9,
-    "figure.dpi":        150,
+    "font.size":         9,
+    "axes.titlesize":    10,
+    "axes.labelsize":    9,
+    "legend.fontsize":   8,
+    "xtick.labelsize":   8,
+    "ytick.labelsize":   8,
+    "figure.dpi":        200,
 })
 warnings.filterwarnings("ignore")
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 RESULTS_DIR = os.path.join(BASE_DIR, "results")
-PDE_ORDER   = [
-    "Airy", "Fisher", "Duffing", "ThomasFermi", 
-    "Navier-Stokes", "Navier-Stokes-Unsteady", 
-    "Lane-Emden", "Troesch", "Ginzburg-Landau", "Painleve-I"
-]
-DIMS        = [1, 2]
-LOG_EPS     = 1e-12
-
-STYLE = {
-    "PISR-NSGA-II":  dict(color="#2E86C1", marker="o", zorder=4, lw=1.8),
-    "DeepXDE":        dict(color="#27AE60", marker="^", zorder=5, lw=1.8),
-}
 
 def load_all():
     files = glob.glob(os.path.join(RESULTS_DIR, "**", "*_pareto.csv"), recursive=True)
-    if not files: raise FileNotFoundError(f"No CSV files found in {RESULTS_DIR}")
+    if not files: return pd.DataFrame()
     
     dfs = []
     for f in files:
         try:
             tmp = pd.read_csv(f)
-            tmp["mse_domain"]   = pd.to_numeric(tmp["mse_domain"],   errors='coerce')
-            tmp["mse_boundary"] = pd.to_numeric(tmp["mse_boundary"], errors='coerce')
+            # Ensure numeric types
+            for col in ["mse_domain", "mse_boundary", "tree_size"]:
+                if col in tmp.columns:
+                    tmp[col] = pd.to_numeric(tmp[col], errors='coerce')
             dfs.append(tmp)
         except Exception as e:
             print(f"Warning: Skipping {f} due to error: {e}")
             
+    if not dfs: return pd.DataFrame()
     df = pd.concat(dfs, ignore_index=True)
     df = df.dropna(subset=["mse_domain", "mse_boundary"])
-    df["mse_total"] = df["mse_domain"] + df["mse_boundary"]
     return df
 
-def print_analysis_detailed(df):
-    print("\n" + "="*80)
-    print(f"{'Equation':<20} {'Dim':<5} {'PISR-NSGA-II (Mean ± Std)':<35}")
-    print("-" * 80)
+def plot_pairwise_pareto(df):
+    unique_pdes = df[["pde", "dim"]].drop_duplicates()
+    
+    for _, row in unique_pdes.iterrows():
+        pde_name = row["pde"]
+        dim = row["dim"]
+        pde_label = f"{pde_name}_{dim}D"
+        
+        sub = df[(df["pde"] == pde_name) & (df["dim"] == dim)]
+        # Filter Rank 1 only for the plot
+        pareto = sub[sub["rank"] == 1]
+        if pareto.empty: continue
 
-    for pde in PDE_ORDER:
-        for d in DIMS:
-            sub = df[(df["pde"] == pde) & (df["dim"] == d)]
-            if sub.empty:
-                full_pde = f"{pde}_{d}D"
-                sub = df[df["pde"] == full_pde]
-                if sub.empty: continue
+        fig, axes = plt.subplots(1, 3, figsize=(15, 4))
+        plt.subplots_adjust(wspace=0.3)
+        
+        # 1. Domain MSE vs Boundary MSE (Log-Log)
+        ax = axes[0]
+        ax.scatter(pareto["mse_domain"], pareto["mse_boundary"], color="#2E86C1", alpha=0.7, edgecolors='k', s=40)
+        ax.set_xscale("log")
+        ax.set_yscale("log")
+        ax.set_xlabel("Domain MSE (Physics)")
+        ax.set_ylabel("Boundary MSE")
+        ax.set_title("Physics vs. Boundary")
+        ax.grid(True, which="both", ls="-", alpha=0.2)
 
-            m_sub = sub[sub["method"] == "PI-NSGA-II"]
-            if not m_sub.empty:
-                mean_val = m_sub["mse_total"].mean()
-                std_val  = m_sub["mse_total"].std()
-                if np.isnan(std_val): std_val = 0.0
-                stats_str = f"{mean_val:.2e} ± {std_val:.2e}"
-            else:
-                stats_str = "—"
-            
-            print(f"{pde:<20} {d:<5} {stats_str:<35}")
-    print("-" * 80)
+        # 2. Domain MSE vs Complexity (Log-Linear)
+        ax = axes[1]
+        ax.scatter(pareto["mse_domain"], pareto["tree_size"], color="#E67E22", alpha=0.7, edgecolors='k', s=40)
+        ax.set_xscale("log")
+        ax.set_xlabel("Domain MSE (Physics)")
+        ax.set_ylabel("Complexity (Nodes)")
+        ax.set_title("Physics vs. Complexity")
+        ax.grid(True, which="both", ls="-", alpha=0.2)
+
+        # 3. Boundary MSE vs Complexity (Log-Linear)
+        ax = axes[2]
+        ax.scatter(pareto["mse_boundary"], pareto["tree_size"], color="#27AE60", alpha=0.7, edgecolors='k', s=40)
+        ax.set_xscale("log")
+        ax.set_xlabel("Boundary MSE")
+        ax.set_ylabel("Complexity (Nodes)")
+        ax.set_title("Boundary vs. Complexity")
+        ax.grid(True, which="both", ls="-", alpha=0.2)
+
+        fig.suptitle(f"Pareto Trade-offs: {pde_label}", fontsize=12, fontweight='bold', y=1.05)
+        
+        save_path = os.path.join(RESULTS_DIR, f"{pde_label}_pareto_pairs.pdf")
+        plt.savefig(save_path, bbox_inches='tight')
+        plt.close()
+        print(f"  [Plot] Generated: {save_path}")
 
 def main():
-    try:
-        df = load_all()
-        print(f"Loaded {len(df)} individuals from all runs.")
-        print_analysis_detailed(df)
-        # (La parte de plot_convergence se mantiene igual)
-        print(f"Plots updated in {RESULTS_DIR}")
-    except Exception as e:
-        print(f"Error in plot_pareto console output: {e}")
+    print("Generating Pairwise Pareto Plots...")
+    df = load_all()
+    if df.empty:
+        print("No Pareto data found in results/ directory.")
+        return
+    
+    plot_pairwise_pareto(df)
+    print("Done.")
 
 if __name__ == "__main__":
     main()

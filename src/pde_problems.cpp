@@ -10,11 +10,11 @@ std::string PDEProblem::name() const {
     return pde_name(type);
 }
 
-Complex PDEProblem::bc(double x, double y) const {
-    return exact(x, y);
+Complex PDEProblem::bc(double x, double y, double t) const {
+    return exact(x, y, t);
 }
 
-Complex PDEProblem::exact(double x, double y) const {
+Complex PDEProblem::exact(double x, double y, double t) const {
     if (dim == 1) {
         switch (type) {
             case PDE::LAPLACE:   return x;
@@ -63,8 +63,10 @@ Complex PDEProblem::exact(double x, double y) const {
                 double lambda = Re / 2.0 - std::sqrt(Re * Re / 4.0 + 4.0 * PI_INTERNAL * PI_INTERNAL);
                 return y - std::exp(lambda * x) * std::sin(2.0 * PI_INTERNAL * y) / (2.0 * PI_INTERNAL * Re);
             }
-            case PDE::NAVIER_STOKES_UNSTEADY:
-                return std::sin(PI_INTERNAL * x) * std::sin(PI_INTERNAL * y); 
+            case PDE::NAVIER_STOKES_UNSTEADY: {
+                double lambda = 2.0 * PI_INTERNAL * PI_INTERNAL * k2;
+                return std::sin(PI_INTERNAL * x) * std::sin(PI_INTERNAL * y) * std::exp(-lambda * t); 
+            }
             case PDE::BRATU:
                 return std::log(2.0 / (std::cosh(x + y) * std::cosh(x + y)));
             case PDE::ALLEN_CAHN: {
@@ -76,7 +78,7 @@ Complex PDEProblem::exact(double x, double y) const {
     }
 }
 
-Complex PDEProblem::source(double x, double y) const {
+Complex PDEProblem::source(double x, double y, double t) const {
     switch (type) {
         case PDE::LAPLACE: return 0.0;
         case PDE::BRATU: return 0.0; 
@@ -86,37 +88,40 @@ Complex PDEProblem::source(double x, double y) const {
             return (dim == 1) ? (PI_INTERNAL*PI_INTERNAL*std::sin(PI_INTERNAL*x)) : (2.0*PI_INTERNAL*PI_INTERNAL*std::sin(PI_INTERNAL*x)*std::sin(PI_INTERNAL*y));
         case PDE::HELMHOLTZ: {
             double f_poisson = (dim == 1) ? (PI_INTERNAL*PI_INTERNAL*std::sin(PI_INTERNAL*x)) : (2.0*PI_INTERNAL*PI_INTERNAL*std::sin(PI_INTERNAL*x)*std::sin(PI_INTERNAL*y));
-            return f_poisson - k2 * exact(x, y);
+            return f_poisson - k2 * exact(x, y, t);
         }
         case PDE::NONLINEAR_POISSON: {
             double r2 = x*x + y*y; double den = 1.0 + r2;
             Complex lap = (8.0*r2)/(den*den*den) - 4.0/(den*den);
-            return lap + exact(x, y) * exact(x, y);
+            return lap + exact(x, y, t) * exact(x, y, t);
         }
         case PDE::LIOUVILLE: {
             double r2 = x*x + y*y; double den = 1.0 + r2;
             Complex lap = (8.0*r2)/(den*den*den) - 4.0/(den*den);
-            return lap + std::exp(exact(x, y));
+            return lap + std::exp(exact(x, y, t));
         }
         default: return 0.0;
     }
 }
 
-Complex PDEProblem::pde_residual_ad(const AD& ad, double x, double y) const {
+Complex PDEProblem::pde_residual_ad(const AD& ad, double x, double y, double t) const {
     Complex u = ad.v;
-    Complex laplacian = ad.dxx + ad.dyy;
+    Complex laplacian = (dim == 1) ? ad.dxx : (ad.dxx + ad.dyy);
     switch (type) {
         case PDE::LAPLACE: return laplacian;
-        case PDE::POISSON: return laplacian + source(x, y);
-        case PDE::HELMHOLTZ: return laplacian + k2 * u + source(x, y);
+        case PDE::POISSON: return laplacian + source(x, y, t);
+        case PDE::HELMHOLTZ: return laplacian + k2 * u + source(x, y, t);
         case PDE::SCHRODINGER: return laplacian + (static_cast<double>(dim)*PI_INTERNAL*PI_INTERNAL) * u;
         case PDE::HARMONIC_OSCILLATOR: return laplacian - (dim == 1 ? x*x : x*x+y*y)*u + (static_cast<double>(dim))*u;
-        case PDE::NONLINEAR_POISSON: return laplacian + u*u - source(x, y);
-        case PDE::LIOUVILLE: return laplacian + std::exp(u) - source(x, y);
-        case PDE::SINE_GORDON: return laplacian - std::sin(u.real());
+        case PDE::NONLINEAR_POISSON: return laplacian + u*u - source(x, y, t);
+        case PDE::LIOUVILLE: return laplacian + std::exp(u) - source(x, y, t);
+        case PDE::SINE_GORDON: return laplacian - std::sin(u);
         case PDE::AIRY: return laplacian - (dim == 1 ? x : x+y)*u;
         case PDE::FISHER: return laplacian + u*(1.0-u);
-        case PDE::DUFFING: return laplacian + u + u*u*u - std::sin(PI_INTERNAL * x); // Forced oscillator
+        case PDE::DUFFING: {
+            double forcing = (dim == 1) ? std::sin(PI_INTERNAL * x) : std::sin(PI_INTERNAL * x) * std::sin(PI_INTERNAL * y);
+            return laplacian + u + u*u*u - forcing;
+        }
         case PDE::THOMAS_FERMI: {
             double r = (dim == 1) ? std::abs(x) : std::sqrt(x*x + y*y);
             return laplacian - std::pow(u + 1e-6, 1.5) / std::sqrt(r + 1e-6);
@@ -124,9 +129,17 @@ Complex PDEProblem::pde_residual_ad(const AD& ad, double x, double y) const {
         case PDE::BRATU: return laplacian + 2.0 * std::exp(u);
         case PDE::ALLEN_CAHN: return 0.01 * laplacian - (u*u*u - u);
         case PDE::LANE_EMDEN: return laplacian + (2.0 / (x + 1e-6)) * ad.dx + std::pow(u + 1e-6, 3.0); 
-        case PDE::TROESCH: return laplacian - 2.0 * std::sinh(2.0 * u.real()); // mu=2 is more stable for symbolic
+        case PDE::TROESCH: return laplacian - 2.0 * std::sinh(2.0 * u); // Fully complex sinh
         case PDE::GINZBURG_LANDAU: return laplacian + u - u*u*u;
         case PDE::PAINLEVE1: return laplacian - (u*u + x + y);
+        case PDE::NAVIER_STOKES: {
+            // Simplified proxy for RAR: Advection-Diffusion balance using 2nd order AD
+            return k2 * laplacian - (ad.dx + ad.dy); 
+        }
+        case PDE::NAVIER_STOKES_UNSTEADY: {
+            // Stronger 2D proxy for RAR: Time-Laplacian coupling
+            return ad.dt - k2 * laplacian;
+        }
         default: return 0.0;
     }
 }
@@ -176,8 +189,8 @@ PDEProblem make_painleve1() { PDEProblem p; p.type = PDE::PAINLEVE1; p.dim = 1; 
 Complex PDEProblem::pde_second_derivative(double x, Complex u) const {
     switch (type) {
         case PDE::LAPLACE: return 0.0;
-        case PDE::POISSON: return source(x, 0.0);
-        case PDE::HELMHOLTZ: return source(x, 0.0) - k2 * u;
+        case PDE::POISSON: return source(x, 0.0, 0.0);
+        case PDE::HELMHOLTZ: return source(x, 0.0, 0.0) - k2 * u;
         case PDE::SCHRODINGER: return -(PI_INTERNAL * PI_INTERNAL) * u;
         case PDE::AIRY:      return x * u;
         case PDE::HARMONIC_OSCILLATOR: return (x*x - 1.0) * u;
@@ -194,6 +207,52 @@ Complex PDEProblem::pde_second_derivative(double x, Complex u) const {
     }
 }
 
-Complex PDEProblem::numerical_exact(double x, double y) const {
-    return exact(x, y);
+Complex PDEProblem::numerical_exact(double x, double y, double t) const {
+    return exact(x, y, t);
+}
+
+// ─── Probing Físico (Análisis Asintótico y de Simetrías) ──────────────────────
+PDEPriors probe_priors(const PDEProblem& prob) {
+    PDEPriors priors;
+    AD dummy_ad;
+    dummy_ad.v = 1.0; dummy_ad.dx = 0.5; dummy_ad.dy = 0.5; 
+    dummy_ad.dxx = -0.1; dummy_ad.dyy = -0.1; dummy_ad.dt = 0.1;
+    
+    // 1. Probar Invarianza Traslacional
+    Complex res_base = prob.pde_residual_ad(dummy_ad, 1.0, 1.0, 0.0);
+    Complex res_x_shift = prob.pde_residual_ad(dummy_ad, 2.0, 1.0, 0.0);
+    Complex res_y_shift = prob.pde_residual_ad(dummy_ad, 1.0, 2.0, 0.0);
+    if (std::abs(res_base - res_x_shift) < 1e-9) priors.autonomous_x = true;
+    if (std::abs(res_base - res_y_shift) < 1e-9) priors.autonomous_y = true;
+    
+    // 2. Probar Simetría Par
+    Complex res_x_neg = prob.pde_residual_ad(dummy_ad, -1.0, 1.0, 0.0);
+    if (std::abs(res_base - res_x_neg) < 1e-9) priors.even_parity_x = true;
+    
+    // 3. Probar Singularidad en el Origen (Polo)
+    Complex res_origin = prob.pde_residual_ad(dummy_ad, 1e-6, 1e-6, 0.0);
+    if (std::abs(res_origin) > 1e4 || !std::isfinite(res_origin.real())) priors.pole_at_origin = true;
+
+    // 4. Análisis de Homogeneidad (Invarianza de Escala)
+    // Probamos si R(u, x, t) == R(lambda*u, lambda*x, lambda^2*t)
+    AD scaled_ad; double L = 2.0;
+    scaled_ad.v = dummy_ad.v * L; 
+    scaled_ad.dx = dummy_ad.dx; // (du/dx se mantiene igual si u y x escalan igual)
+    scaled_ad.dxx = dummy_ad.dxx / L;
+    Complex res_scaled = prob.pde_residual_ad(scaled_ad, L, L, L*L);
+    if (std::abs(res_base - res_scaled / L) < 1e-3) priors.scale_invariant = true;
+
+    // 5. ADN Diferencial (Orden de Derivada)
+    // Cambiamos dxx y vemos si el residuo cambia. Si no cambia, no es de 2º orden.
+    AD ad_no_lap = dummy_ad; ad_no_lap.dxx = 0; ad_no_lap.dyy = 0;
+    if (std::abs(res_base - prob.pde_residual_ad(ad_no_lap, 1.0, 1.0, 0.0)) > 1e-9) {
+        priors.max_deriv_order = 2;
+    } else if (std::abs(res_base - prob.pde_residual_ad(dummy_ad, 1.0, 1.0, 0.0)) > 1e-9) {
+        priors.max_deriv_order = 1;
+    }
+
+    // 6. Conservación (Divergencia)
+    if (prob.type == PDE::NAVIER_STOKES || prob.type == PDE::NAVIER_STOKES_UNSTEADY) priors.is_conservative = true;
+
+    return priors;
 }

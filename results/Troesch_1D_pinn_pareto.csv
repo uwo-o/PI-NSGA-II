@@ -1,2 +1,2 @@
 method,pde,dim,mse_domain,mse_boundary,runtime_s,rank
-DeepXDE,Troesch,1,0.0763716964,0.2927773975,1.3447,1
+DeepXDE,Troesch,1,0.1335448468,0.4327378274,0.2986,1

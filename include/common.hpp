@@ -40,7 +40,7 @@ inline std::string pde_name(PDE t) {
         case PDE::NAVIER_STOKES_UNSTEADY: return "Navier-Stokes-Unsteady";
         case PDE::FISHER:            return "Fisher";
         case PDE::DUFFING:           return "Duffing";
-        case PDE::THOMAS_FERMI:      return "ThomasFermi";
+        case PDE::THOMAS_FERMI:      return "Thomas-Fermi";
         case PDE::BRATU:             return "Bratu";
         case PDE::ALLEN_CAHN:        return "Allen-Cahn";
         case PDE::LANE_EMDEN:        return "Lane-Emden";
@@ -50,14 +50,14 @@ inline std::string pde_name(PDE t) {
         default: return "Unknown";
     }
 }
-
 // ─── Tipos de Nodo del árbol ──────────────────────────────────────────────────
 enum class NodeType {
     ADD, SUB, MUL, DIV, POW,
     SIN, COS, SINH, COSH, EXP, SQR, LOG, TANH,
     LEGENDRE, HERMITE, CHEBYSHEV, LAGUERRE,
     BESSEL_J, GAMMA, GAUSSIAN,
-    VAR_X, VAR_Y, VAR_T, ERC, CONST_I, CONST_PI, CONST_E,
+    VAR_X, VAR_Y, VAR_T, VAR_N, ERC, CONST_I, CONST_PI, CONST_E,
+    SERIES,
     UNKNOWN
 };
 
@@ -84,6 +84,10 @@ struct Individual {
     double crowding     = 0.0;
     int    tree_size    = 0;
     NodeType root_type  = NodeType::UNKNOWN;
+
+    // Restricciones NSGA-II (Deb, 2002)
+    bool   is_feasible = true;
+    double constraint_violation = 0.0; // 0 = feasible, >0 = infeasible
 };
 
 // ─── Estadísticas de convergencia por generación ─────────────────────────────
@@ -96,16 +100,24 @@ struct ConvergenceStats {
 
 // ─── Parámetros globales ──────────────────────────────────────────────────────
 namespace Config {
-    constexpr int    POP_SIZE       = 200;   
-    constexpr int    MAX_GEN        = 300;   
-    constexpr int    N_DOMAIN       = 2000;   
-    constexpr int    N_BOUNDARY     = 500;   
-    constexpr double ERC_SIGMA      = 0.20;  
-    constexpr int    MAX_TREE_DEPTH = 8;
+    extern int    POP_SIZE;   
+    extern int    MAX_GEN;   
+    extern int    N_DOMAIN;  
+    extern int    N_BOUNDARY;   
+    extern double ERC_SIGMA;  
+    extern int    MAX_TREE_DEPTH;
+    
+    extern double CROSSOVER_PROB;  
+    extern double MUTATION_PROB;   
+    extern int    TOURNAMENT_SIZE;    
+    extern double STOP_THRESHOLD; 
 
-    constexpr int    CODON_LENGTH   = 64;    
-    constexpr double CROSSOVER_PROB = 0.80;  
-    constexpr double MUTATION_PROB  = 0.3;  
-    constexpr int    TOURNAMENT_SIZE = 6;    
-    constexpr double STOP_THRESHOLD  = 1e-7; // Alta precisión analítica
-}
+    // Hybrid Committee RAR
+    extern int    RAR_INTERVAL;      
+    extern int    RAR_CANDIDATES;    
+    extern double RAR_ADAPTIVE_RATIO;
+    extern int    RAR_ELITE_COUNT;   // Top N expertos (ej. 10)
+    extern double RAR_RANDOM_RATIO;  // % de población aleatoria (ej. 0.25)
+
+    extern int    CORES;             // Número de hilos para paralelismo (OpenMP)
+    }

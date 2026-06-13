@@ -95,14 +95,14 @@ std::vector<Complex> solve_rk4_1d(const PDEProblem& prob, int resolution) {
 
 static const double PI_VAL = std::acos(-1.0);
 
-Complex get_laplacian_value(const PDEProblem& prob, double x, double y, Complex u) {
+Complex get_laplacian_value(const PDEProblem& prob, double x, double y, Complex u, double t = 0.0) {
     switch (prob.type) {
         case PDE::LAPLACE:
             return 0.0;
         case PDE::POISSON:
-            return prob.source(x, y);
+            return prob.source(x, y, t);
         case PDE::HELMHOLTZ:
-            return prob.source(x, y) - prob.k2 * u;
+            return prob.source(x, y, t) - prob.k2 * u;
         case PDE::SCHRODINGER:
             return -2.0 * PI_VAL * PI_VAL * u;
         case PDE::AIRY:
@@ -111,24 +111,28 @@ Complex get_laplacian_value(const PDEProblem& prob, double x, double y, Complex 
             return (x * x + y * y - 2.0) * u;
         case PDE::FISHER:
             return -u * (1.0 - u);
-        case PDE::DUFFING:
-            return -u - u * u * u;
-        case PDE::THOMAS_FERMI:
-            return u * u / (x + y + 0.5);
+        case PDE::DUFFING: {
+            double forcing = (prob.dim == 1) ? std::sin(PI_VAL * x) : std::sin(PI_VAL * x) * std::sin(PI_VAL * y);
+            return -(u + u * u * u - forcing);
+        }
+        case PDE::THOMAS_FERMI: {
+            double r = (prob.dim == 1) ? std::abs(x) : std::sqrt(x*x + y*y);
+            return std::pow(u + 1e-6, 1.5) / std::sqrt(r + 1e-6);
+        }
         case PDE::NONLINEAR_POISSON:
-            return prob.source(x, y) - u * u;
+            return prob.source(x, y, t) - u * u;
         case PDE::LIOUVILLE:
-            return prob.source(x, y) - std::exp(u);
+            return prob.source(x, y, t) - std::exp(u);
         case PDE::SINE_GORDON:
-            return prob.source(x, y) + std::sin(u.real());
+            return prob.source(x, y, t) + std::sin(u);
         case PDE::BRATU:
             return -2.0 * std::exp(u);
         case PDE::ALLEN_CAHN:
             return (u*u*u - u) / 0.01;
         case PDE::LANE_EMDEN:
-            return -u*u*u; // u'' + (2/x)u' + u³ = 0
+            return -std::pow(u + 1e-6, 3.0); // u'' + (2/x)u' + u³ = 0
         case PDE::TROESCH:
-            return 3.0 * std::sinh(3.0 * u.real());
+            return 2.0 * std::sinh(2.0 * u);
         case PDE::GINZBURG_LANDAU:
             return -u + u*u*u;
         case PDE::PAINLEVE1:

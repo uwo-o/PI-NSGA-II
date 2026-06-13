@@ -24,27 +24,36 @@ std::vector<std::vector<int>> fast_non_dominated_sort(std::vector<Ind>& pop) {
     std::vector<std::vector<int>> fronts(1);
 
     for (int i = 0; i < n; ++i) {
-        if (pop[i].mse_domain >= 1e10 || pop[i].mse_boundary >= 1e10) {
-            domination_count[i] = 999999;
-            continue;
-        }
         for (int j = 0; j < n; ++j) {
             if (i == j) continue;
-            if (pop[j].mse_domain >= 1e10 || pop[j].mse_boundary >= 1e10) continue;
-            // 3 Objetivos para el frente de Pareto: Domain MSE, Boundary MSE y Tree Size (Complejidad)
-            bool i_dom_j = (pop[i].mse_domain   <= pop[j].mse_domain   &&
-                            pop[i].mse_boundary <= pop[j].mse_boundary &&
-                            pop[i].tree_size    <= pop[j].tree_size)      &&
-                           (pop[i].mse_domain   <  pop[j].mse_domain   ||
-                            pop[i].mse_boundary <  pop[j].mse_boundary ||
-                            pop[i].tree_size    <  pop[j].tree_size);
+            
+            bool i_dom_j = false;
+            bool j_dom_i = false;
 
-            bool j_dom_i = (pop[j].mse_domain   <= pop[i].mse_domain   &&
-                            pop[j].mse_boundary <= pop[i].mse_boundary &&
-                            pop[j].tree_size    <= pop[i].tree_size)      &&
-                           (pop[j].mse_domain   <  pop[i].mse_domain   ||
-                            pop[j].mse_boundary <  pop[i].mse_boundary ||
-                            pop[j].tree_size    <  pop[i].tree_size);
+            // Deb's Constrained Domination Rule
+            if (pop[i].is_feasible && !pop[j].is_feasible) {
+                i_dom_j = true;
+            } else if (!pop[i].is_feasible && pop[j].is_feasible) {
+                j_dom_i = true;
+            } else if (!pop[i].is_feasible && !pop[j].is_feasible) {
+                if (pop[i].constraint_violation < pop[j].constraint_violation) i_dom_j = true;
+                else if (pop[j].constraint_violation < pop[i].constraint_violation) j_dom_i = true;
+            } else {
+                // Both feasible: Traditional Pareto Dominance (3 objectives)
+                i_dom_j = (pop[i].mse_domain   <= pop[j].mse_domain   &&
+                           pop[i].mse_boundary <= pop[j].mse_boundary &&
+                           pop[i].tree_size    <= pop[j].tree_size)      &&
+                          (pop[i].mse_domain   <  pop[j].mse_domain   ||
+                           pop[i].mse_boundary <  pop[j].mse_boundary ||
+                           pop[i].tree_size    <  pop[j].tree_size);
+
+                j_dom_i = (pop[j].mse_domain   <= pop[i].mse_domain   &&
+                           pop[j].mse_boundary <= pop[i].mse_boundary &&
+                           pop[j].tree_size    <= pop[i].tree_size)      &&
+                          (pop[j].mse_domain   <  pop[i].mse_domain   ||
+                           pop[j].mse_boundary <  pop[i].mse_boundary ||
+                           pop[j].tree_size    <  pop[i].tree_size);
+            }
 
             if (i_dom_j) dominated_by[i].push_back(j);
             else if (j_dom_i) domination_count[i]++;
@@ -109,8 +118,8 @@ void crowding_distance_assignment(std::vector<Ind>& pop,
     for (int i : front) {
         if (pop[i].crowding < 1e15) { // No tocar los bordes del frente
             double frequency = (double)counts[pop[i].root_type] / sz;
-            // Bonus Agresivo: penaliza fuertemente la uniformidad estructural
-            pop[i].crowding *= (1.0 + 2.0 / (frequency + 0.05));
+            // Bonus Moderado: incentiva diversidad estructural sin romper el orden de error
+            pop[i].crowding *= (1.0 + 0.5 / (frequency + 0.1));
         }
     }
 }

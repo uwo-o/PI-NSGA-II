@@ -37,10 +37,10 @@ def main():
         ("Fisher", 2): r"\text{Numerical (Ground Truth)}",
         ("Duffing", 1): r"\text{Numerical (Ground Truth)}",
         ("Duffing", 2): r"\text{Numerical (Ground Truth)}",
-        ("ThomasFermi", 1): r"\text{Numerical (Ground Truth)}",
-        ("ThomasFermi", 2): r"\text{Numerical (Ground Truth)}",
+        ("Thomas-Fermi", 1): r"\text{Numerical (Ground Truth)}",
+        ("Thomas-Fermi", 2): r"\text{Numerical (Ground Truth)}",
         ("Navier-Stokes", 2): r"y - \frac{e^{\lambda x}}{2 \pi \text{Re}} \sin(2 \pi y)",
-        ("Navier-Stokes-Unsteady", 2): r"\sin(\pi x) \sin(\pi y)",
+        ("Navier-Stokes-Unsteady", 2): r"\sin(\pi x) \sin(\pi y) e^{-\lambda t}",
         ("Lane-Emden", 1): r"1 - x^2/6",
         ("Troesch", 1): r"\text{Numerical (Ground Truth)}",
         ("Ginzburg-Landau", 1): r"\text{Numerical (Ground Truth)}",
@@ -60,7 +60,7 @@ def main():
     ]
     
     pde_list = [
-        "Airy", "Fisher", "Duffing", "ThomasFermi",
+        "Airy", "Fisher", "Duffing", "Thomas-Fermi",
         "Navier-Stokes", "Navier-Stokes-Unsteady",
         "Lane-Emden", "Troesch", "Ginzburg-Landau", "Painleve-I"
     ]

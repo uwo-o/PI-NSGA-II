@@ -136,27 +136,27 @@ def build_problem(pde_name, dim):
     def exact_poisson_2d(x,y): return np.sin(_pi*x)*np.sin(_pi*y)
     def exact_helmholtz(x, y=None):
         return np.sin(_pi*x) if y is None else np.sin(_pi*x)*np.sin(_pi*y)
-    def exact_schrodinger_1d(x):   return np.exp(1j*_pi*x)  # onda plana
-    def exact_schrodinger_2d(x,y): return np.exp(1j*_pi*(x+y))
+    def exact_schrodinger_1d(x):   return np.cos(_pi*x) 
+    def exact_schrodinger_2d(x,y): return np.cos(_pi*(x+y))
+    
     # Numéricos: función de referencia basada en la física del estado base
-    import scipy.special as sp
-    def ref_airy_1d(x):          return sp.airy(x)[0]
-    def ref_airy_2d(x,y):        return np.where(x < 0.01, 0.3550, 0.1353)
+    def ref_airy_1d(x):          return np.exp(-0.5*x)
+    def ref_airy_2d(x,y):        return np.exp(-0.5*(x+y))
     def ref_ho_1d(x):            return np.exp(-0.5*x**2)           # estado base ψ₀
     def ref_ho_2d(x,y):          return np.exp(-0.5*(x**2+y**2))
-    def ref_nonlin_poisson(x,y): return 1.0/(1+x**2+y**2)          # solución analítica
-    def ref_liouville(x,y):      return 1.0/(1+x**2+y**2)          # solución analítica
-    def ref_sine_gordon(x,y):    return np.sin(_pi*x)*np.sin(_pi*y) # aprox
+    def ref_nonlin_poisson(x,y): return 1.0/(1+x**2+y**2)          
+    def ref_liouville(x,y):      return 1.0/(1+x**2+y**2)          
+    def ref_sine_gordon(x,y):    return np.sin(_pi*x)*np.sin(_pi*y) 
     def ref_navier_stokes(x,y):
-        Re = 20.0
+        Re = 20.0 # 1/0.05
         lam = Re / 2.0 - np.sqrt(Re**2 / 4.0 + 4.0 * _pi**2)
         return y - np.exp(lam * x) * np.sin(2.0 * _pi * y) / (2.0 * _pi * Re)
-    def ref_fisher_1d(x):       return np.where(x < 0.01, 0.1, 0.8)
-    def ref_fisher_2d(x,y):     return 0.1 + 0.35 * (x + y)
-    def ref_duffing_1d(x):      return np.where(x < 0.01, 1.0, -0.5)
-    def ref_duffing_2d(x,y):    return 1.0 - 0.75 * (x + y)
-    def ref_tf_1d(x):           return np.where(x < 0.01, 1.0, 0.2)
-    def ref_tf_2d(x,y):         return 1.0 - 0.4 * (x + y)
+    def ref_fisher_1d(x):       return 1.0 / (1.0 + np.exp(-x))
+    def ref_fisher_2d(x,y):     return 1.0 / (1.0 + np.exp(-(x + y)))
+    def ref_duffing_1d(x):      return 1.0 / np.cosh(x)
+    def ref_duffing_2d(x,y):    return 1.0 / np.cosh(x + y)
+    def ref_tf_1d(x):           return 1.0 / (x + 0.5)
+    def ref_tf_2d(x,y):         return 1.0 / (x + y + 0.5)
     def ref_bratu(x,y):         return np.log(2.0 / (np.cosh(x + y)**2))
     def ref_allen_cahn(x,y):
         eps = np.sqrt(0.01)
@@ -207,49 +207,55 @@ def build_problem(pde_name, dim):
                     return lap - (x[:,0:1] + x[:,1:2])*u
 
             elif pde_name == "HarmonicOscillator":
-                # -u'' + x²u = u  →  u'' = (x²-1)u
+                # -u'' + x²u = dim*u  →  u'' = (x² - dim)u
                 if dim == 1:
                     V = x[:,0:1]**2
+                    E = 1.0
                 else:
                     V = x[:,0:1]**2 + x[:,1:2]**2
-                E = 1.0
+                    E = 2.0
                 return lap - (V - E)*u
 
             elif pde_name == "NonlinearPoisson":
-                # ∇²u + u² = 0 (con f calculado de la sol exacta)
-                # Sol exacta: 1/(1+x²+y²) → ∇²u = 2(x²+y²-1)/(1+x²+y²)³
-                if dim == 2:
-                    r2 = x[:,0:1]**2 + x[:,1:2]**2
-                    f = -2*(r2 - 1)/(1+r2)**3
-                else:
-                    f = torch.zeros_like(u)
+                # ∇²u + u² = f (con f calculado de la sol exacta)
+                # Sol exacta: 1/(1+x²+y²) → ∇²u = 4(x²+y²-1)/(1+x²+y²)³
+                # f = ∇²u + u² = [4(r²-1) + (1+r²)] / (1+r²)³ = (5r² - 3) / (1+r²)³
+                r2 = x[:,0:1]**2 + (x[:,1:2]**2 if dim==2 else 0)
+                f = (5*r2 - 3) / (1 + r2)**3
                 return lap + u**2 - f
 
             elif pde_name == "Liouville":
-                # ∇²u = e^u  (ecuación de Liouville)
-                return lap - torch.exp(u)
+                # ∇²u + e^u = f
+                # f = ∇²u + exp(u_exact)
+                r2 = x[:,0:1]**2 + (x[:,1:2]**2 if dim==2 else 0)
+                u_exact = 1.0 / (1.0 + r2)
+                f = 4*(r2 - 1)/(1+r2)**3 + torch.exp(u_exact)
+                return lap + torch.exp(u) - f
 
             elif pde_name == "Sine-Gordon":
-                # ∇²u - sin(u) = f
-                u_exact = torch.sin(_pi * x[:, 0:1]) * torch.sin(_pi * x[:, 1:2])
-                f = -2.0 * _pi**2 * u_exact - torch.sin(u_exact)
-                return lap - torch.sin(u) - f
+                # ∇²u - sin(u) = 0 (Match C++ pde_residual_ad)
+                return lap - torch.sin(u)
 
             elif pde_name == "Fisher":
                 # ∇²u + u*(1-u) = 0
                 return lap + u * (1.0 - u)
 
             elif pde_name == "Duffing":
-                # ∇²u + u + u³ = 0
-                return lap + u + u**3
-
-            elif pde_name == "ThomasFermi":
-                # ∇²u = u² / (x + y + 0.5)
+                # ∇²u + u + u³ = forcing
                 if dim == 1:
-                    var = x[:, 0:1] + 0.5
+                    forcing = torch.sin(_pi * x[:, 0:1])
                 else:
-                    var = x[:, 0:1] + x[:, 1:2] + 0.5
-                return lap - u**2 / var
+                    forcing = torch.sin(_pi * x[:, 0:1]) * torch.sin(_pi * x[:, 1:2])
+                return lap + u + u**3 - forcing
+
+            elif pde_name == "Thomas-Fermi":
+                # ∇²u = u^1.5 / sqrt(r)
+                if dim == 1:
+                    r = torch.abs(x[:, 0:1])
+                else:
+                    r = torch.sqrt(x[:, 0:1]**2 + x[:, 1:2]**2)
+                # Use abs(u) to prevent NaNs during training if u becomes negative
+                return lap - torch.pow(torch.abs(u) + 1e-6, 1.5) / torch.sqrt(r + 1e-4)
 
             elif pde_name == "Navier-Stokes":
                 psi_x = dde.grad.jacobian(u, x, i=0, j=0)
@@ -295,16 +301,20 @@ def build_problem(pde_name, dim):
                 return lap + (2.0 / (x[:, 0:1] + 1e-6)) * u_x + u**3
 
             elif pde_name == "Troesch":
-                # u'' = 3 * sinh(3u)
-                return lap - 3.0 * torch.sinh(3.0 * u)
+                # u'' = 2 * sinh(2u) (Match C++ pde_residual_ad)
+                return lap - 2.0 * torch.sinh(2.0 * u)
 
             elif pde_name == "Ginzburg-Landau":
                 # u'' + u - u³ = 0
                 return lap + u - u**3
 
             elif pde_name == "Painleve-I":
-                # u'' = u² + x
-                return lap - (u**2 + x[:, 0:1])
+                # u'' = u² + x + y
+                if dim == 1:
+                    var = x[:, 0:1]
+                else:
+                    var = x[:, 0:1] + x[:, 1:2]
+                return lap - (u**2 + var)
 
             return lap
         return pde
@@ -338,8 +348,8 @@ def build_problem(pde_name, dim):
         ("Fisher",     2): (None,               ref_fisher_2d),
         ("Duffing",    1): (ref_duffing_1d,     None),
         ("Duffing",    2): (None,               ref_duffing_2d),
-        ("ThomasFermi",1): (ref_tf_1d,          None),
-        ("ThomasFermi",2): (None,               ref_tf_2d),
+        ("Thomas-Fermi",1): (ref_tf_1d,          None),
+        ("Thomas-Fermi",2): (None,               ref_tf_2d),
     }
 
     fn1d, fn2d = exact_map.get((pde_name, dim), (None, None))
@@ -359,7 +369,7 @@ def build_problem(pde_name, dim):
 
     # ── Arquitectura de red: más profunda para ecuaciones no lineales ─────────
     nonlinear = {"NonlinearPoisson", "Liouville", "Sine-Gordon", "Airy", "Navier-Stokes", 
-                 "Navier-Stokes-Unsteady", "Fisher", "Duffing", "ThomasFermi", 
+                 "Navier-Stokes-Unsteady", "Fisher", "Duffing", "Thomas-Fermi", 
                  "Bratu", "Allen-Cahn", "Lane-Emden", "Troesch", "Ginzburg-Landau", "Painleve-I"}
     
     # Memoria VRAM: GTX 1050 Ti tiene solo 4GB. 
@@ -425,8 +435,12 @@ def _solve_and_eval_inner(pde_name, dim, run_dir, epochs_override=None, is_test=
 
     # Fase 1: Adam con decaimiento de lr y resampler adaptativo (SOTA)
     resampler = dde.callbacks.PDEPointResampler(period=100)
+    early_stop = dde.callbacks.EarlyStopping(min_delta=1e-9, patience=1000)
+    
     model.compile("adam", lr=1e-3, decay=("step", 2000, 0.5), loss_weights=[1, 100])
-    losshistory, _ = model.train(iterations=epochs_adam, display_every=max(1, epochs_adam//5), callbacks=[resampler])
+    losshistory, _ = model.train(iterations=epochs_adam, 
+                                 display_every=max(1, epochs_adam//10), 
+                                 callbacks=[resampler, early_stop])
 
     # Fase 2: L-BFGS para refinamiento fino con pesos de pérdida sincronizados
     if not is_test:
@@ -546,19 +560,19 @@ def main():
     parser.add_argument("--test",   action="store_true", help="Fast test mode")
     args = parser.parse_args()
 
-    # The Hardcore Physics Benchmark
+    # The Hardcore Physics Benchmark (Matches C++ run_once selection)
     problems = [
         ("Airy",               1), ("Airy",               2),
         ("Fisher",             1), ("Fisher",             2),
         ("Duffing",            1), ("Duffing",            2),
-        ("ThomasFermi",        1), ("ThomasFermi",        2),
+        ("Thomas-Fermi",        1), ("Thomas-Fermi",        2),
         ("Navier-Stokes",      2),
         ("Navier-Stokes-Unsteady", 2),
         ("Lane-Emden",         1),
         ("Troesch",            1),
         ("Ginzburg-Landau",    1),
         ("Painleve-I",         1),
-        ]
+    ]
 
     if args.only:
         name, d = args.only.rsplit("_", 1)

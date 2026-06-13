@@ -1,0 +1,2 @@
+method,pde,dim,mse_domain,mse_boundary,runtime_s,rank
+DeepXDE,Ginzburg-Landau,1,0.0612839789,0.0617284132,0.3186,1

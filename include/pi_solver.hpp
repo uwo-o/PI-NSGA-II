@@ -8,6 +8,7 @@
 // ─── Individuo de PI-NSGA-II ──────────────────────────────────────────────────
 struct PIIndividual : public Individual {
     NodePtr tree;
+    double sample_dom_variance = 0.0;
 
     void evaluate(const PDEProblem& prob, 
                   const std::vector<Point>& dom, 
@@ -32,6 +33,7 @@ public:
 
 private:
     PDEProblem prob_;
+    PDEPriors priors_;
     std::mt19937 gen_;
     std::vector<PIIndividual> population_;
     std::vector<ConvergenceStats> history_;
@@ -52,7 +54,14 @@ private:
     PIIndividual random_individual();
     PIIndividual random_individual_special();
     PIIndividual make_offspring(const PIIndividual& a, const PIIndividual& b);
-    void hill_climb_constants(PIIndividual& ind, int iterations);
+    void hill_climb_constants(PIIndividual& ind, int iterations, std::mt19937& thread_gen);
+public:
+    void polish_constants(PIIndividual& ind); // New high-precision polisher
     
+private:
+    // Hybrid Committee RAR
+    void apply_committee_rar();
+    Point generate_random_point();
+
     void update_hall_of_fame();
 };

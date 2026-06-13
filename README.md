@@ -1,89 +1,78 @@
-# PI-NSGA-II vs Koza BNF vs PINNs: Physics-Informed Multi-Objective Symbolic Regression & Neural Solvers on PDEs
+# PISR-NSGA-II: Physics-Informed Multi-Objective Symbolic Regression
 
-This repository contains the C++ and Python codebase, benchmark evaluation suite, and automated publication-quality reporting system comparing three paradigms for solving differential equations:
-1. **PI-NSGA-II**: Our proposed Physics-Informed Multi-Objective Symbolic Regression solver using exact Automatic Differentiation (AD).
-2. **DeepXDE**: A deep neural network baseline powered by DeepXDE, optimized for execution on consumer GPUs.
+PISR-NSGA-II is a technical framework designed for the symbolic discovery of Partial Differential Equations (PDEs) and Ordinary Differential Equations (ODEs). It combines an exact Automatic Differentiation (AD) engine with a Pure Memetic NSGA-II optimization core to discover interpretable mathematical models that govern complex physical phenomena.
 
----
+## Core Optimization Engine
 
-## Key Features
+### Pure Memetic NSGA-II
+The framework implements a canonical NSGA-II (Deb et al., 2002) as its primary multi-objective search algorithm, optimized for three competitive objectives:
+1.  **Domain Residual ($\mathcal{L}_{dom}$):** Exact PDE residual computed via second-order AD.
+2.  **Boundary Error ($\mathcal{L}_{bc}$):** Mean Squared Error across all Dirichlet and Initial Conditions.
+3.  **Structural Complexity:** Total node count of the symbolic expression tree (anti-bloat measure).
 
-### 1. The Solvers
-* **PI-NSGA-II (Ours)**:
-  * Expressions are evaluated using **Exact Automatic Differentiation (AD)** based on second-order chain rules.
-  * Zero truncation error allows discovery of exact PDE residual gradients.
-  * Rich operator library: `+`, `-`, `*`, `/`, `sin`, `cos`, `exp`, `log`, `sinh`, `cosh`, `tanh`, `sqrt`, `atan`.
-  * Real-valued Ephemeral Random Constants (ERCs) with Gaussian mutation.
-* **DeepXDE (Baseline)**:
-  * Deep neural networks built using the DeepXDE framework.
-  * Memory-optimized execution using VRAM-conserving techniques (mixed-precision training, gradient accumulation, and reduced hidden layers) to prevent CUDA out-of-memory errors on limited VRAM hardware.
+### Constraint Handling (Deb 2002)
+Instead of arbitrary penalty functions, the engine enforces physical and mathematical consistency through strict constraint-domination rules:
+*   **Non-Triviality:** Expressions lacking independent variables are flagged as infeasible.
+*   **Dimensional Consistency:** Buckingham Pi theorem logic is enforced during tree construction and verified during evaluation.
+*   **Numerical Stability:** Solutions generating NaNs or Inf during AD evaluation are categorically dominated by feasible candidates.
 
-### 2. Multi-Objective & Hypervolume Selection
-* Evaluates candidates across three objective dimensions:
-  1. $\mathcal{L}_{\text{dom}}$: Interior domain PDE residual (Mean Squared Error).
-  2. $\mathcal{L}_{\text{bc}}$: Boundary condition compliance (Mean Squared Error).
-  3. **Complexity**: Symbolic node/complexity metric.
-* Analyzes Pareto fronts using a **3D Hypervolume (HV)** metric to determine structural convergence.
+## Mathematical Architecture
 
-### 3. Comprehensive Benchmarks (13 Equations)
-* **Elliptic PDEs**: Laplace ($\nabla^2 u = 0$), Poisson ($\nabla^2 u = f$), Helmholtz ($\nabla^2 u + k^2 u = f$), Nonlinear Poisson ($\nabla^2 u + u^2 = f$), Liouville ($\nabla^2 u = e^u$), Sine-Gordon ($\nabla^2 u = \sin(u)$), and Navier-Stokes ($\psi_y (\nabla^2 \psi)_x - \psi_x (\nabla^2 \psi)_y = \nu \nabla^4 \psi$).
-* **ODEs & Systems**: Schrödinger ($-u'' + V u = E u$), Airy ($u'' = x\,u$), Harmonic Oscillator ($u'' = (x^2-1)u$), Fisher ($\nabla^2 u + u(1-u) = 0$), Duffing ($\nabla^2 u + u + u^3 = 0$), and Thomas-Fermi ($\nabla^2 u = u^2 / (x+y+0.5)$).
+### High-Fidelity AD Engine
+The engine performs exact differentiation using recursive chain rules across expression trees. It supports second-order derivatives and complex-valued arithmetic, allowing the algorithm to navigate through the complex plane to resolve difficult physical topologies before projecting back to real solutions.
 
----
+### Symbolic Basis and Library
+The search space is augmented with physical motifs rather than simple arithmetic operators:
+*   **Orthogonal Polynomials:** Legendre, Hermite, Chebyshev, and Laguerre bases.
+*   **Infinite Series Operators:** Native `SERIES` node for Fourier (spectral) and Frobenius (singular) expansions.
+*   **Complex Plane Explorers:** Quantum phase chirps and topological vortices.
+*   **Extreme Regimes:** Specialized templates for boundary layers (Troesch) and fractional power laws (Thomas-Fermi).
 
-## Directory Structure
+### Physics-Guided Initialization (Priors)
+Before evolution starts, the engine probes the target PDE to detect innate symmetries and properties:
+*   **Lie Symmetries:** Detection of translational invariance to favor wave-packet structures.
+*   **Scale Invariance:** Homogeneity analysis to identify self-similar solution manifolds.
+*   **Differential ADN:** Detection of the maximum derivative order to filter out topologically insufficient trees.
 
-```
-.
-├── include/              # C++ Header files
-│   ├── common.hpp        # Shared symbolic regression configs
-│   ├── nsga2.hpp         # Core NSGA-II sorting and selection
-│   ├── pde_problems.hpp  # Analytical and numerical boundary definitions
-│   ├── tree_node.hpp     # Expression tree & Exact AD chain rule
-│   ├── koza_bnf.hpp      # Grammatical evolution (Finite Difference)
-│   └── pi_solver.hpp     # Physics-Informed Symbolic Regression (Exact AD)
-├── src/                  # C++ Source files
-├── main.cpp              # C++ Main entry point
-├── pinn_baseline.py      # DeepXDE baseline execution (PyTorch backend)
-├── plot_solutions.py     # 3D surface and 1D curve plotting pipeline
-├── plot_pareto.py        # Pareto front and Hypervolume graphing
-├── stats_analysis.py     # Multi-run statistics & Wilcoxon testing
-├── run_pipeline.sh       # Automated C++/Python runner script
-└── report/               # LaTeX templates and compilation files
-    ├── generate_report.py
-    ├── results.tex       # Master LaTeX document
-    └── figures/          # Output vector PDF graphics
-```
+## Optimization Pipeline
 
----
+1.  **Structural Search:** The Memetic NSGA-II explores the symbolic topology while performing stochastic Hill-Climbing for coefficient optimization.
+2.  **Committee RAR:** Residual-based Adaptive Refinement where a committee of elite and random individuals identifies high-uncertainty regions for resampling.
+3.  **High-Precision Polishing:** Post-evolution stage using multi-stage coordinate descent to refine discovered physical constants to machine precision.
 
-## Installation & Usage
+## CLI Parameters
 
-### 1. Prerequisites
-Ensure you have a C++17 compiler, CMake, and a Python 3 environment.
+The `PISR-NSGA-II` binary provides granular control over the physics-informed search:
 
-```bash
-# Set up Python virtual environment
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-```
+| Parameter | Description | Default |
+| :--- | :--- | :--- |
+| `--only <NAME>` | Target a specific PDE (e.g., `ThomasFermi_2D`, `Navier-Stokes_2D`). | All |
+| `--pop <N>` | Population size for the structural search. | 300 |
+| `--gen <N>` | Maximum number of generations. | 300 |
+| `--domain <N>` | Number of collocation points for the domain residual. | 2000 |
+| `--boundary <N>` | Number of points for boundary and initial conditions. | 500 |
+| `--depth <N>` | Maximum symbolic tree depth. | 8 |
+| `--sigma <F>` | Standard deviation for Gaussian ERC mutation. | 0.20 |
+| `--stop <F>` | Global convergence threshold (MSE). | 1e-7 |
+| `--cores <N>` | Number of CPU threads (0 = Auto-detect). | 1 |
+| `--runs <N>` | Number of independent stochastic executions for statistical analysis. | 1 |
+| `--test` | Debug mode with reduced population and generations. | Off |
 
-### 2. Build C++ Core
+## Execution
+
+### Compilation
+Requires a C++17 compliant compiler and CMake 3.10+.
+
 ```bash
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel $(nproc)
 ```
 
-### 3. Run DeepXDE Baseline
-```bash
-python3 pinn_baseline.py --only Laplace_2D
-```
-*Use `--only <equation_name>` to restrict training, or run without flags to train DeepXDE baselines on all 13 problems.*
+### Full Pipeline
+The pipeline executes the symbolic discovery, neural baselines (DeepXDE), statistical comparison, and LaTeX report generation:
 
-### 4. Run the Full Evaluation & Compile Report
-The automated pipeline executes the symbolic search runs, trains DeepXDE baselines, regenerates all vector PDF graphics, and compiles the LaTeX PDF:
 ```bash
 ./run_pipeline.sh
 ```
-The compiled output is saved as `report/results.pdf`.
+
+The comprehensive analysis is output to `report/results.pdf`.
