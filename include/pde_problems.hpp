@@ -9,6 +9,7 @@
 #include <vector>
 #include <functional>
 
+class Node;
 
 // ─── Problema PDE ─────────────────────────────────────────────────────────────
 struct PDEProblem {
@@ -16,6 +17,7 @@ struct PDEProblem {
     int    dim = 2;    // 1 o 2 dimensiones
     double k2 = 0.0;   // coeficiente k² en Helmholtz: ∇²u + k²u = f
     bool   is_numerical = false; // Indica si requiere validación vía NumericalSolver
+    bool   is_unsteady = false;  // Indica si depende del tiempo
     std::vector<Complex> numerical_truth; // Malla de referencia pre-calculada
 
     // Dimensiones para coherencia física
@@ -41,9 +43,14 @@ struct PDEProblem {
     // Condición de frontera (valor de u en ∂Ω a tiempo t)
     virtual Complex bc(double x, double y, double t = 0.0) const;
 
+    // Cálculo unificado del residuo (incluye AD o Híbrido AD-FDM)
+    virtual Complex compute_residual(const Node* tree, const Point& p) const;
+
+    // Cálculo unificado del error de frontera (Dirichlet, Neumann, etc.)
+    virtual double compute_boundary_error(const Node* tree, const std::vector<Point>& bnd) const;
+
     // Residuo del PDE usando AD (para método propuesto)
-    // R = ∇²u + k²u - f
-    virtual Complex pde_residual_ad(const AD& ad, double x, double y, double t = 0.0) const;
+    Complex pde_residual_ad(const AD& ad, double x, double y, double t = 0.0) const;
 
     // Nombre legible
     std::string name() const;

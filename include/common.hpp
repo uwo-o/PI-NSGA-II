@@ -56,11 +56,12 @@ enum class NodeType {
     SIN, COS, SINH, COSH, EXP, SQR, LOG, TANH,
     LEGENDRE, HERMITE, CHEBYSHEV, LAGUERRE,
     BESSEL_J, GAMMA, GAUSSIAN,
-    VAR_X, VAR_Y, VAR_T, VAR_N, ERC, CONST_I, CONST_PI, CONST_E,
+    VAR_X, VAR_Y, VAR_T, VAR_Z, VAR_N,
+    ERC, CONST_I, CONST_PI, CONST_E,
+    CONST_G, CONST_C, CONST_HBAR, CONST_KB, CONST_EPS0,
     SERIES,
     UNKNOWN
-};
-
+    };
 // ─── Estructura Dual (Valor + Derivadas) para AD ──────────────────────────────
 struct AD {
     Complex v;   // valor

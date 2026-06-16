@@ -14,8 +14,17 @@
 
 inline bool is_binary(NodeType t) {
     return t == NodeType::ADD || t == NodeType::SUB || t == NodeType::MUL || t == NodeType::DIV || 
-           t == NodeType::LEGENDRE || t == NodeType::HERMITE || t == NodeType::CHEBYSHEV || t == NodeType::LAGUERRE;
+           t == NodeType::LEGENDRE || t == NodeType::HERMITE || t == NodeType::CHEBYSHEV || t == NodeType::LAGUERRE ||
+           t == NodeType::POW;
 }
+inline bool is_trig(NodeType t) {
+    return t == NodeType::SIN || t == NodeType::COS || t == NodeType::SINH || t == NodeType::COSH || t == NodeType::TANH;
+}
+
+inline bool is_polynomial(NodeType t) {
+    return t == NodeType::LEGENDRE || t == NodeType::HERMITE || t == NodeType::CHEBYSHEV || t == NodeType::LAGUERRE;
+}
+
 inline bool is_unary(NodeType t) {
     return t == NodeType::SIN  || t == NodeType::COS  ||
            t == NodeType::SINH || t == NodeType::COSH ||
@@ -24,11 +33,12 @@ inline bool is_unary(NodeType t) {
            t == NodeType::BESSEL_J || t == NodeType::GAMMA || t == NodeType::GAUSSIAN;
 }
 inline bool is_constant(NodeType t) {
-    return t == NodeType::ERC || t == NodeType::CONST_I || t == NodeType::CONST_PI || t == NodeType::CONST_E;
+    return t == NodeType::ERC || t == NodeType::CONST_I || t == NodeType::CONST_PI || t == NodeType::CONST_E ||
+           (t >= NodeType::CONST_G && t <= NodeType::CONST_EPS0);
 }
 inline bool is_terminal(NodeType t) {
-    return t == NodeType::VAR_X || t == NodeType::VAR_Y || t == NodeType::VAR_T || t == NodeType::VAR_N ||
-           t == NodeType::ERC || t == NodeType::CONST_I || t == NodeType::CONST_PI || t == NodeType::CONST_E;
+    return t == NodeType::VAR_X || t == NodeType::VAR_Y || t == NodeType::VAR_T || t == NodeType::VAR_N || t == NodeType::VAR_Z ||
+           is_constant(t);
 }
 
 class PDEProblem;
@@ -46,8 +56,14 @@ public:
     virtual Complex eval_t(double x, double y, double t) const = 0;
     
     virtual std::optional<Dimension> get_dimension(const PDEProblem& prob) const = 0;
+    virtual bool is_unit_flexible() const = 0;
+    virtual bool contains_erc() const = 0;
     virtual bool contains_variables() const = 0;
     virtual int get_unary_depth() const = 0;
+    virtual bool has_nested_trig() const = 0;
+    virtual bool contains_trig() const = 0;
+    virtual bool has_nested_polynomial() const = 0;
+    virtual bool contains_polynomial() const = 0;
     
     bool is_consistent(const PDEProblem& prob) const {
         return get_dimension(prob).has_value();
@@ -60,6 +76,8 @@ public:
     virtual void mutate_erc(std::mt19937& gen, double sigma = Config::ERC_SIGMA) {}
     virtual void print(std::ostream& os) const = 0;
     virtual void print_latex(std::ostream& os) const = 0;
+    virtual void print_formal(std::ostream& os, int parent_prec = 0) const = 0;
+    virtual void round_constants(double epsilon = 0.05) = 0;
     
     std::string print_str() const {
         std::stringstream ss;
@@ -84,18 +102,27 @@ public:
     Complex eval(double x, double y) const override;
     Complex eval_t(double x, double y, double t) const override;
     std::optional<Dimension> get_dimension(const PDEProblem& prob) const override;
+    bool is_unit_flexible() const override;
+    bool contains_erc() const override;
     bool contains_variables() const override;
     int get_unary_depth() const override { return 0; }
+    bool has_nested_trig() const override { return false; }
+    bool contains_trig() const override { return is_trig(type); }
+    bool has_nested_polynomial() const override { return false; }
+    bool contains_polynomial() const override { return is_polynomial(type); }
     NodePtr clone() const override;
     int count_nodes() const override;
     int get_depth() const override;
     void mutate_erc(std::mt19937& gen, double sigma = Config::ERC_SIGMA) override;
     void print(std::ostream& os) const override;
     void print_latex(std::ostream& os) const override;
-    NodePtr simplify() const override;
-    NodePtr prune_recursive(const PDEProblem& prob, const std::vector<Point>& dom, const std::vector<Point>& bnd, double original_mse, double tolerance) override;
-    void collect_ercs(std::vector<Complex*>& ptrs) override;
-    bool uses_variable(NodeType var_type) const override;
+    void print_formal(std::ostream& os, int parent_prec = 0) const override;
+    void round_constants(double epsilon = 0.05) override;
+
+    NodePtr simplify() const override { return clone(); }
+    NodePtr prune_recursive(const PDEProblem& prob, const std::vector<Point>& dom, const std::vector<Point>& bnd, double original_mse, double tolerance) override { return clone(); }
+    void collect_ercs(std::vector<Complex*>& ptrs) override { if (type == NodeType::ERC) ptrs.push_back(&erc_val); }
+    bool uses_variable(NodeType var_type) const override { return type == var_type; }
 };
 
 class UnaryNode final : public Node {
@@ -109,18 +136,27 @@ public:
     Complex eval(double x, double y) const override;
     Complex eval_t(double x, double y, double t) const override;
     std::optional<Dimension> get_dimension(const PDEProblem& prob) const override;
+    bool is_unit_flexible() const override;
+    bool contains_erc() const override;
     bool contains_variables() const override;
     int get_unary_depth() const override;
+    bool has_nested_trig() const override;
+    bool contains_trig() const override;
+    bool has_nested_polynomial() const override;
+    bool contains_polynomial() const override;
     NodePtr clone() const override;
     int count_nodes() const override;
     int get_depth() const override;
     void mutate_erc(std::mt19937& gen, double sigma = Config::ERC_SIGMA) override { if(child) child->mutate_erc(gen, sigma); }
     void print(std::ostream& os) const override;
     void print_latex(std::ostream& os) const override;
+    void print_formal(std::ostream& os, int parent_prec = 0) const override;
+    void round_constants(double epsilon = 0.05) override;
+
     NodePtr simplify() const override;
     NodePtr prune_recursive(const PDEProblem& prob, const std::vector<Point>& dom, const std::vector<Point>& bnd, double original_mse, double tolerance) override;
-    void collect_ercs(std::vector<Complex*>& ptrs) override;
-    bool uses_variable(NodeType var_type) const override;
+    void collect_ercs(std::vector<Complex*>& ptrs) override { if (child) child->collect_ercs(ptrs); }
+    bool uses_variable(NodeType var_type) const override { return child && child->uses_variable(var_type); }
 };
 
 class BinaryNode final : public Node {
@@ -135,8 +171,14 @@ public:
     Complex eval(double x, double y) const override;
     Complex eval_t(double x, double y, double t) const override;
     std::optional<Dimension> get_dimension(const PDEProblem& prob) const override;
+    bool is_unit_flexible() const override;
+    bool contains_erc() const override;
     bool contains_variables() const override;
     int get_unary_depth() const override;
+    bool has_nested_trig() const override;
+    bool contains_trig() const override;
+    bool has_nested_polynomial() const override;
+    bool contains_polynomial() const override;
     NodePtr clone() const override;
     int count_nodes() const override;
     int get_depth() const override;
@@ -146,10 +188,13 @@ public:
     }
     void print(std::ostream& os) const override;
     void print_latex(std::ostream& os) const override;
+    void print_formal(std::ostream& os, int parent_prec = 0) const override;
+    void round_constants(double epsilon = 0.05) override;
+
     NodePtr simplify() const override;
     NodePtr prune_recursive(const PDEProblem& prob, const std::vector<Point>& dom, const std::vector<Point>& bnd, double original_mse, double tolerance) override;
-    void collect_ercs(std::vector<Complex*>& ptrs) override;
-    bool uses_variable(NodeType var_type) const override;
+    void collect_ercs(std::vector<Complex*>& ptrs) override { if (left) left->collect_ercs(ptrs); if (right) right->collect_ercs(ptrs); }
+    bool uses_variable(NodeType var_type) const override { return (left && left->uses_variable(var_type)) || (right && right->uses_variable(var_type)); }
 };
 
 class SeriesNode final : public Node {
@@ -164,18 +209,27 @@ public:
     Complex eval(double x, double y) const override;
     Complex eval_t(double x, double y, double t) const override;
     std::optional<Dimension> get_dimension(const PDEProblem& prob) const override;
+    bool is_unit_flexible() const override;
+    bool contains_erc() const override;
     bool contains_variables() const override;
     int get_unary_depth() const override;
+    bool has_nested_trig() const override;
+    bool contains_trig() const override;
+    bool has_nested_polynomial() const override;
+    bool contains_polynomial() const override;
     NodePtr clone() const override;
     int count_nodes() const override;
     int get_depth() const override;
     void mutate_erc(std::mt19937& gen, double sigma = Config::ERC_SIGMA) override;
     void print(std::ostream& os) const override;
     void print_latex(std::ostream& os) const override;
+    void print_formal(std::ostream& os, int parent_prec = 0) const override;
+    void round_constants(double epsilon = 0.05) override;
+
     NodePtr simplify() const override;
     NodePtr prune_recursive(const PDEProblem& prob, const std::vector<Point>& dom, const std::vector<Point>& bnd, double original_mse, double tolerance) override;
     void collect_ercs(std::vector<Complex*>& ptrs) override;
-    bool uses_variable(NodeType var_type) const override;
+    bool uses_variable(NodeType var_type) const override { return child && child->uses_variable(var_type); }
 };
 
 NodePtr make_var(char v);

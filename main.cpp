@@ -9,6 +9,7 @@
 // =============================================================================
 
 #include "pi_solver.hpp"
+int last_special_choice = -1;
 #include "numerical_solver.hpp"
 #include <iostream>
 #include <fstream>
@@ -60,13 +61,13 @@ void save_convergence_csv(const std::vector<ConvergenceStats>& history,
 
 // ─── Guardar Mejor Expresión en LaTeX ────────────────────────────────────────
 template<typename Ind>
-void save_best_expression(const std::vector<Ind>& pop, const std::string& path) {
+void save_best_expression(const std::vector<Ind>& pop, const PDEProblem& prob, const std::string& path) {
     const Ind* best = nullptr;
     double min_err = 1e18;
 
-    // Prioridad: Mejor factible en Rank 1
+    // Prioridad: Mejor factible en Rank 1 que sea FÍSICAMENTE COMPLETO
     for (auto& ind : pop) {
-        if (ind.rank == 1 && ind.is_feasible && ind.tree) {
+        if (ind.rank == 1 && ind.is_feasible && ind.tree && ind.is_physically_complete(prob)) {
             double err = ind.mse_domain + ind.mse_boundary;
             if (err < min_err) { min_err = err; best = &ind; }
         }
@@ -75,8 +76,9 @@ void save_best_expression(const std::vector<Ind>& pop, const std::string& path) 
     if (best) {
         std::ofstream f(path);
         f << "$$ \\hat{u}(x,y) = ";
-        auto simple_tree = best->tree->simplify(); // Limpieza antes de exportar
-        simple_tree->print_latex(f);
+        auto final_tree = best->tree->simplify(); // Limpieza simbólica
+        final_tree->round_constants(0.05);        // Redondeo inteligente (1.01 -> 1)
+        final_tree->print_formal(f, 0);           // Impresión formal sin paréntesis redundantes
         f << " $$" << std::endl;
     }
 }
@@ -88,7 +90,7 @@ void save_best_grid(const std::vector<Ind>& pop, const PDEProblem& prob, const s
     double min_err = 1e18;
 
     for (auto& ind : pop) {
-        if (ind.rank == 1 && ind.is_feasible && ind.tree) {
+        if (ind.rank == 1 && ind.is_feasible && ind.tree && ind.is_physically_complete(prob)) {
             double err = ind.mse_domain + ind.mse_boundary;
             if (err < min_err) { min_err = err; best = &ind; }
         }
@@ -179,6 +181,7 @@ static double hv2d(std::vector<std::pair<double,double>> pts, double rx, double 
 
 template<typename Ind>
 double compute_hypervolume(const std::vector<Ind>& pop,
+                           const PDEProblem& prob,
                            double ref_dom  = 1e4,
                            double ref_bnd  = 1e4,
                            double ref_size = 1.0)   // tree_size normalizado
@@ -190,11 +193,11 @@ double compute_hypervolume(const std::vector<Ind>& pop,
     // Determinar max tree_size para normalización
     double max_ts = 1.0;
     for (auto& ind : pop)
-        if (ind.rank == 1)
+        if (ind.rank == 1 && ind.is_physically_complete(prob))
             max_ts = std::max(max_ts, (double)ind.tree_size);
 
     for (auto& ind : pop) {
-        if (ind.rank != 1) continue;
+        if (ind.rank != 1 || !ind.is_physically_complete(prob)) continue;
         double f1 = ind.mse_domain;
         double f2 = ind.mse_boundary;
         double f3 = (double)ind.tree_size / max_ts;   // normalizar a [0,1]
@@ -238,6 +241,7 @@ double compute_hypervolume(const std::vector<Ind>& pop,
 
 template<typename Ind>
 Stats compute_stats(const std::vector<Ind>& pop,
+                    const PDEProblem& prob,
                     const std::string& method,
                     const std::string& pde,
                     double rt)
@@ -246,17 +250,24 @@ Stats compute_stats(const std::vector<Ind>& pop,
     s.method = method; s.pde = pde; s.runtime_s = rt;
     int infeasible = 0;
     int total_nodes = 0;
+    double best_total = 1e18;
     for (auto& ind : pop) {
         if (!ind.is_feasible) {
             infeasible++;
         }
         total_nodes += ind.tree_size;
-        if (ind.rank == 1 && ind.is_feasible) {
+
+        // Análisis del Frente de Pareto (Individuos de Rank 1 y Físicamente Completos)
+        if (ind.rank == 1 && ind.is_feasible && ind.is_physically_complete(prob)) {
             s.front_size++;
-            s.best_domain = std::min(s.best_domain, ind.mse_domain);
-            s.best_bnd    = std::min(s.best_bnd,    ind.mse_boundary);
+            double current_total = ind.mse_domain + ind.mse_boundary;
+            if (current_total < best_total) {
+                best_total = current_total;
+                s.best_domain = ind.mse_domain;
+                s.best_bnd = ind.mse_boundary;
+            }
             s.mean_domain += ind.mse_domain;
-            s.mean_bnd    += ind.mse_boundary;
+            s.mean_bnd += ind.mse_boundary;
         }
     }
     if (!pop.empty()) {
@@ -267,7 +278,7 @@ Stats compute_stats(const std::vector<Ind>& pop,
         s.mean_domain /= s.front_size;
         s.mean_bnd    /= s.front_size;
     }
-    s.hypervolume = compute_hypervolume(pop);
+    s.hypervolume = compute_hypervolume(pop, prob);
     return s;
 }
 
@@ -292,11 +303,12 @@ void print_table(const std::string& lbl, const Stats& p) {
     std::cout << "+------------------+-------------+-------------+----------+-------------+----------+\n";
     std::cout << "| Metodo           | MSE Dom.    | MSE Bnd.    | Pareto   | Hipervolumen| Tiempo   |\n";
     std::cout << "+------------------+-------------+-------------+----------+-------------+----------+\n";
-    std::cout << std::fixed << std::setprecision(4);
+    std::cout << std::scientific << std::setprecision(4);
     std::cout << "| PI-NSGA-II       | " << std::setw(11) << p.best_domain
               << " | " << std::setw(11) << p.best_bnd
+              << std::defaultfloat << std::setprecision(4)
               << " | " << std::setw(8)  << p.front_size
-              << " | " << std::setw(11) << p.hypervolume
+              << " | " << std::setw(11) << std::fixed << p.hypervolume 
               << " | " << std::setw(7)  << p.runtime_s << "s |\n";
     std::cout << "+------------------+-------------+-------------+----------+-------------+----------+\n";
     std::cout << "| Health Analytics | Infeasible: " << std::setw(5) << std::fixed << std::setprecision(1) << p.infeasible_ratio << "% | Bloat Factor (Avg nodes): " << std::setw(5) << p.bloat_factor << "         |\n";
@@ -431,10 +443,10 @@ std::vector<Stats> run_once(int run_id, const std::string& out_dir, bool verbose
             
             save_pareto_csv(pi_pop, out_dir + "/" + lbl + "_pi_gn_pareto.csv", "PI-NSGA-II", prob.name(), prob.dim);
             save_convergence_csv(pi.history(), out_dir + "/" + lbl + "_pi_gn_convergence.csv");
-            save_best_expression(pi_pop, out_dir + "/expr_" + lbl + "_PI-NSGA-II.tex");
+            save_best_expression(pi_pop, prob, out_dir + "/expr_" + lbl + "_PI-NSGA-II.tex");
             save_best_grid(pi_pop, prob, out_dir + "/grid_" + lbl + "_PI-NSGA-II.csv");
             
-            Stats ps = compute_stats(pi_pop, "PI-NSGA-II", lbl, pi_rt);
+            Stats ps = compute_stats(pi_pop, prob, "PI-NSGA-II", lbl, pi_rt);
             if (verbose) print_table(lbl, ps);
             all_stats.push_back(ps);
         }
