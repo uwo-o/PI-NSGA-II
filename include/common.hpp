@@ -117,8 +117,9 @@ namespace Config {
     extern int    RAR_INTERVAL;      
     extern int    RAR_CANDIDATES;    
     extern double RAR_ADAPTIVE_RATIO;
-    extern int    RAR_ELITE_COUNT;   // Top N expertos (ej. 10)
-    extern double RAR_RANDOM_RATIO;  // % de población aleatoria (ej. 0.25)
+    extern int    RAR_ELITE_COUNT;   
+    extern double RAR_RANDOM_RATIO;  
+    extern bool   GENERAL_MODE;      
 
-    extern int    CORES;             // Número de hilos para paralelismo (OpenMP)
+    extern int    CORES;             
     }

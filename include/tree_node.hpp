@@ -64,6 +64,9 @@ public:
     virtual bool contains_trig() const = 0;
     virtual bool has_nested_polynomial() const = 0;
     virtual bool contains_polynomial() const = 0;
+    virtual bool has_nested_exp() const = 0;
+    virtual bool contains_exp() const = 0;
+    virtual bool has_invalid_polynomial_degree() const = 0;
     
     bool is_consistent(const PDEProblem& prob) const {
         return get_dimension(prob).has_value();
@@ -110,6 +113,9 @@ public:
     bool contains_trig() const override { return is_trig(type); }
     bool has_nested_polynomial() const override { return false; }
     bool contains_polynomial() const override { return is_polynomial(type); }
+    bool has_nested_exp() const override { return false; }
+    bool contains_exp() const override { return type == NodeType::EXP; }
+    bool has_invalid_polynomial_degree() const override { return false; }
     NodePtr clone() const override;
     int count_nodes() const override;
     int get_depth() const override;
@@ -144,6 +150,9 @@ public:
     bool contains_trig() const override;
     bool has_nested_polynomial() const override;
     bool contains_polynomial() const override;
+    bool has_nested_exp() const override;
+    bool contains_exp() const override;
+    bool has_invalid_polynomial_degree() const override;
     NodePtr clone() const override;
     int count_nodes() const override;
     int get_depth() const override;
@@ -179,6 +188,9 @@ public:
     bool contains_trig() const override;
     bool has_nested_polynomial() const override;
     bool contains_polynomial() const override;
+    bool has_nested_exp() const override;
+    bool contains_exp() const override;
+    bool has_invalid_polynomial_degree() const override;
     NodePtr clone() const override;
     int count_nodes() const override;
     int get_depth() const override;
@@ -217,6 +229,9 @@ public:
     bool contains_trig() const override;
     bool has_nested_polynomial() const override;
     bool contains_polynomial() const override;
+    bool has_nested_exp() const override;
+    bool contains_exp() const override;
+    bool has_invalid_polynomial_degree() const override;
     NodePtr clone() const override;
     int count_nodes() const override;
     int get_depth() const override;

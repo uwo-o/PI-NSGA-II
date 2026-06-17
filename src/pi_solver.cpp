@@ -122,6 +122,7 @@ namespace Config {
     double RAR_ADAPTIVE_RATIO = 0.30;
     int    RAR_ELITE_COUNT    = 4;
     double RAR_RANDOM_RATIO   = 0.40;
+    bool   GENERAL_MODE       = false;
     int    CORES              = 1;
 }
 
@@ -170,15 +171,29 @@ void PIIndividual::evaluate(const PDEProblem& prob,
         constraint_violation += 1.0;
     }
 
+    if (tree->has_nested_exp()) {
+        is_feasible = false;
+        constraint_violation += 1.0;
+    }
+
+    if (tree->has_invalid_polynomial_degree()) {
+        is_feasible = false;
+        constraint_violation += 1.0;
+    }
+
     double pde_mse = 0.0;
     std::vector<double> sample_values;
+    std::vector<double> grad_magnitudes;
     sample_dom_variance = 0.0;
     double max_grad = 0.0;
 
     for (auto& p : dom) {
         AD ad = tree->ad_eval_t(p.x, p.y, p.t, prob.dim);
         sample_values.push_back(ad.v.real());
-        max_grad = std::max({max_grad, std::abs(ad.dx.real()), std::abs(ad.dy.real()), std::abs(ad.dt.real())});
+        
+        double g_mag = std::abs(ad.dx.real()) + std::abs(ad.dy.real()) + std::abs(ad.dt.real());
+        grad_magnitudes.push_back(g_mag);
+        max_grad = std::max(max_grad, g_mag);
 
         Complex res = prob.compute_residual(tree.get(), p);
         
@@ -190,7 +205,9 @@ void PIIndividual::evaluate(const PDEProblem& prob,
     }
     if (!dom.empty()) pde_mse /= dom.size();
 
-    if (max_grad > 500.0) { is_feasible = false; constraint_violation += 1.0; }
+    if (max_grad > 100.0) { is_feasible = false; constraint_violation += 1.0; }
+    
+    // Varianza de la función
     if (!sample_values.empty()) {
         double sum = std::accumulate(sample_values.begin(), sample_values.end(), 0.0);
         double mean = sum / sample_values.size();
@@ -199,8 +216,24 @@ void PIIndividual::evaluate(const PDEProblem& prob,
         if (sample_dom_variance < (1e-12 * mean * mean + 1e-15)) { is_feasible = false; constraint_violation += 1.0; }
     }
 
+    // Curvatura Estructural (Anti-Aproximación Lineal)
+    // Exigimos que el gradiente NO sea constante (varianza del gradiente > 0)
+    if (!grad_magnitudes.empty()) {
+        double g_sum = std::accumulate(grad_magnitudes.begin(), grad_magnitudes.end(), 0.0);
+        double g_mean = g_sum / grad_magnitudes.size();
+        double g_sq_sum = std::inner_product(grad_magnitudes.begin(), grad_magnitudes.end(), grad_magnitudes.begin(), 0.0);
+        double g_var = std::abs((g_sq_sum / grad_magnitudes.size()) - (g_mean * g_mean));
+        
+        // Si el gradiente es constante (varianza < 1e-10) y la función no es plana (g_mean > 1e-5),
+        // significa que es un plano lineal (u = cx + dy). Eso no resuelve una PDE de 2do orden.
+        if (g_var < 1e-10 && g_mean > 1e-5) { 
+            is_feasible = false; 
+            constraint_violation += 1.0; 
+        }
+    }
+
     // ─── Error de Frontera ───
-    double raw_bc_mse = prob.compute_boundary_error(tree.get(), bnd);
+    double raw_bc_mse = Config::GENERAL_MODE ? 0.0 : prob.compute_boundary_error(tree.get(), bnd);
 
     tree_size = tree->count_nodes();
     root_type = tree->get_type();
@@ -405,9 +438,19 @@ std::vector<PIIndividual> PISolver::run(int pop_size, int max_gen) {
 
         if (has_best_ever_) {
             best_ever_.evaluate(prob_, dom_pts_, bnd_pts_, current_gen_);
-            double train_err = best_ever_.mse_domain + best_ever_.mse_boundary;
+            double train_err = Config::GENERAL_MODE ? best_ever_.mse_domain : (best_ever_.mse_domain + best_ever_.mse_boundary);
             double threshold = Config::STOP_THRESHOLD;
+            
             if (train_err < threshold) {
+                // En modo general, aceptamos la solución por su residuo dinámico
+                if (Config::GENERAL_MODE) {
+                    std::cout << "[INFO] Early stopping en gen=" << g << " (Solucion General Descubierta, Res < " << threshold << ")" << std::endl;
+                    std::vector<PIIndividual> final_pop; final_pop.push_back(std::move(best_ever_));
+                    for (auto& ind : population_) final_pop.push_back(std::move(ind));
+                    fast_non_dominated_sort(final_pop);
+                    return final_pop;
+                }
+
                 double val_err = best_ever_.get_validation_mse(prob_, val_dom_pts_, val_bnd_pts_);
                 if (val_err < threshold * 10.0) {
                     std::cout << "[INFO] Early stopping en gen=" << g << " (Ley Fisica Descubierta, MSE < " << threshold << ")" << std::endl;

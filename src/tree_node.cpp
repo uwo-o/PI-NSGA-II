@@ -799,3 +799,47 @@ bool SeriesNode::has_nested_polynomial() const {
 bool SeriesNode::contains_polynomial() const {
     return child && child->contains_polynomial();
 }
+
+bool UnaryNode::has_nested_exp() const {
+    if (!child) return false;
+    if (type == NodeType::EXP && child->contains_exp()) return true;
+    return child->has_nested_exp();
+}
+
+bool UnaryNode::contains_exp() const {
+    if (type == NodeType::EXP) return true;
+    return child && child->contains_exp();
+}
+
+bool BinaryNode::has_nested_exp() const {
+    if (!left || !right) return false;
+    // Binary operators themselves don't prevent nesting, just recurse
+    return left->has_nested_exp() || right->has_nested_exp();
+}
+
+bool BinaryNode::contains_exp() const {
+    return (left && left->contains_exp()) || (right && right->contains_exp());
+}
+
+bool SeriesNode::has_nested_exp() const {
+    return child && child->has_nested_exp();
+}
+
+bool SeriesNode::contains_exp() const {
+    return child && child->contains_exp();
+}
+
+bool UnaryNode::has_invalid_polynomial_degree() const {
+    return child && child->has_invalid_polynomial_degree();
+}
+
+bool BinaryNode::has_invalid_polynomial_degree() const {
+    if (is_polynomial(type)) {
+        if (right && right->contains_variables()) return true;
+    }
+    return (left && left->has_invalid_polynomial_degree()) || (right && right->has_invalid_polynomial_degree());
+}
+
+bool SeriesNode::has_invalid_polynomial_degree() const {
+    return child && child->has_invalid_polynomial_degree();
+}

@@ -501,6 +501,7 @@ int main(int argc, char* argv[]) {
         else if (std::strcmp(argv[i], "--depth") == 0 && i+1 < argc) Config::MAX_TREE_DEPTH = std::atoi(argv[++i]);
         else if (std::strcmp(argv[i], "--sigma") == 0 && i+1 < argc) Config::ERC_SIGMA = std::atof(argv[++i]);
         else if (std::strcmp(argv[i], "--stop") == 0 && i+1 < argc) Config::STOP_THRESHOLD = std::atof(argv[++i]);
+        else if (std::strcmp(argv[i], "--general") == 0) Config::GENERAL_MODE = true;
         else if (std::strcmp(argv[i], "--cores") == 0 && i+1 < argc) Config::CORES = std::atoi(argv[++i]);
         else if (std::strcmp(argv[i], "--help") == 0) { print_usage(argv[0]); return 0; }
     }
