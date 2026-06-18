@@ -1,78 +1,103 @@
 # PISR-NSGA-II: Physics-Informed Multi-Objective Symbolic Regression
 
-PISR-NSGA-II is a technical framework designed for the symbolic discovery of Partial Differential Equations (PDEs) and Ordinary Differential Equations (ODEs). It combines an exact Automatic Differentiation (AD) engine with a Pure Memetic NSGA-II optimization core to discover interpretable mathematical models that govern complex physical phenomena.
+PISR-NSGA-II is an advanced technical framework for the **symbolic discovery of physical laws** governed by Ordinary and Partial Differential Equations (ODEs/PDEs). It integrates high-fidelity Automatic Differentiation (AD) with a tri-objective evolutionary engine based on NSGA-II to discover mathematically elegant, interpretable, and physically consistent models from collocation data.
 
-## Core Optimization Engine
+## Core Optimization Engine: Pure NSGA-II
 
-### Pure Memetic NSGA-II
-The framework implements a canonical NSGA-II (Deb et al., 2002) as its primary multi-objective search algorithm, optimized for three competitive objectives:
-1.  **Domain Residual ($\mathcal{L}_{dom}$):** Exact PDE residual computed via second-order AD.
-2.  **Boundary Error ($\mathcal{L}_{bc}$):** Mean Squared Error across all Dirichlet and Initial Conditions.
-3.  **Structural Complexity:** Total node count of the symbolic expression tree (anti-bloat measure).
+PISR-NSGA-II stands out by employing a **Pure, Multi-Objective Genetic Algorithm (NSGA-II)**, avoiding the traditional pitfalls of single-objective "weighted sum" approaches that require manual tuning of loss coefficients ($\lambda_{pde}, \lambda_{bc}$).
 
-### Constraint Handling (Deb 2002)
-Instead of arbitrary penalty functions, the engine enforces physical and mathematical consistency through strict constraint-domination rules:
-*   **Non-Triviality:** Expressions lacking independent variables are flagged as infeasible.
-*   **Dimensional Consistency:** Buckingham Pi theorem logic is enforced during tree construction and verified during evaluation.
-*   **Numerical Stability:** Solutions generating NaNs or Inf during AD evaluation are categorically dominated by feasible candidates.
+### Competitive Selection Strategy
+The framework utilizes the canonical selection operators introduced by Deb (2002):
+1.  **Fast Non-Dominated Sorting:** Population is partitioned into hierarchical fronts (Rank 1, 2, ...). An individual $A$ dominates $B$ only if it is no worse in all objectives and strictly better in at least one. This ensures that accurate, simple, and physically consistent models are naturally prioritized.
+2.  **Crowding Distance Assignment:** Within the same rank, individuals are selected based on their spatial sparsity in the objective space. This mechanism **preserves genetic diversity**, preventing the population from collapsing into a single solution and allowing the discovery of a family of candidate physical laws.
+3.  **Lexicographic Tie-Breaking:** To further combat bloat, our implementation uses tree complexity as a final tie-breaker between models with identical error metrics, favoring the most parsimonious analytical form.
 
-## Mathematical Architecture
+## Key Algorithm Qualities
 
-### High-Fidelity AD Engine
-The engine performs exact differentiation using recursive chain rules across expression trees. It supports second-order derivatives and complex-valued arithmetic, allowing the algorithm to navigate through the complex plane to resolve difficult physical topologies before projecting back to real solutions.
+*   **Zero-Loss Weight Tuning:** By treating discovery as a Pareto optimization, the user never has to guess the "correct" importance of the boundary error relative to the PDE residual.
+*   **Agnostic Physics Discovery:** The engine is functionally blind to the specific PDE type, discovering fluid flows, quantum wavefunctions, and singular potentials using a unified structural logic.
+*   **Analytical Interpretability:** Unlike black-box neural networks, the output is a formal mathematical expression that can be scrutinized, derived, and simplified using standard calculus.
+*   **High-Order Stability:** Through the hybrid AD-FDM motor, the engine remains numerically stable even when evaluating complex operators like the biharmonic or vorticity advection.
+*   **Extreme Precision:** The combination of global genetic exploration and local Nelder-Mead simplex refinement allows the engine to bridge the gap between "rough structural discovery" and "machine-precision coefficient tuning" ($10^{-15}$).
 
-### Symbolic Basis and Library
-The search space is augmented with physical motifs rather than simple arithmetic operators:
-*   **Orthogonal Polynomials:** Legendre, Hermite, Chebyshev, and Laguerre bases.
-*   **Infinite Series Operators:** Native `SERIES` node for Fourier (spectral) and Frobenius (singular) expansions.
-*   **Complex Plane Explorers:** Quantum phase chirps and topological vortices.
-*   **Extreme Regimes:** Specialized templates for boundary layers (Troesch) and fractional power laws (Thomas-Fermi).
+## Core Architecture
 
-### Physics-Guided Initialization (Priors)
-Before evolution starts, the engine probes the target PDE to detect innate symmetries and properties:
-*   **Lie Symmetries:** Detection of translational invariance to favor wave-packet structures.
-*   **Scale Invariance:** Homogeneity analysis to identify self-similar solution manifolds.
-*   **Differential ADN:** Detection of the maximum derivative order to filter out topologically insufficient trees.
+### Tri-Objective Optimization Engine
+The framework treats physics discovery as a multi-objective search, balancing three competing goals:
+1.  **Domain Residual ($\mathcal{L}_{dom}$):** The degree to which the candidate function $\hat{u}(\mathbf{x})$ satisfies the differential operator $\mathcal{F}[\hat{u}] = 0$ across the spatial/temporal domain.
+2.  **Boundary Integrity ($\mathcal{L}_{bc}$):** Mean Squared Error (MSE) against Dirichlet, Neumann, or Initial conditions on the domain boundaries.
+3.  **Parsimony (Structural Complexity):** Total node count of the symbolic tree, explicitly rewarding "Occam's Razor" to prevent expression bloat and overfitting.
 
-## Optimization Pipeline
+### Hybrid Evaluation Engine (AD-FDM)
+*   **Exact AD (Order $\le 2$):** Uses recursive polymorphic tree traversal to compute exact spatial and temporal derivatives ($\nabla u, \nabla^2 u, u_t$) without numerical noise.
+*   **Numerical FDM (Order $> 2$):** For high-order operators (e.g., Navier-Stokes advection $\mathbf{u} \cdot \nabla \omega$), the engine applies **Central Finite Differences** ($h=0.01$) over the analytical fields generated by the AD engine, ensuring computational stability and preventing symbolic explosion.
 
-1.  **Structural Search:** The Memetic NSGA-II explores the symbolic topology while performing stochastic Hill-Climbing for coefficient optimization.
-2.  **Committee RAR:** Residual-based Adaptive Refinement where a committee of elite and random individuals identifies high-uncertainty regions for resampling.
-3.  **High-Precision Polishing:** Post-evolution stage using multi-stage coordinate descent to refine discovered physical constants to machine precision.
+## Knowledge-Guided Search (Physical Priors)
 
-## CLI Parameters
+The engine does not start from a vacuum. It is seeded with structural intelligence:
+*   **Functional Arsenal:** A library of **71 specialized seeds** (ansatzes) including Lamb-Oseen vortices, Gaussian wavepackets, and rational/spectral/Frobenius skeletons.
+*   **PI-Awareness:** Trigonometric functions (`sin`, `cos`) are natively initialized with $\pi$-multiples (e.g., $\sin(\pi \cdot C \cdot x)$) to align with standard physical periodicity.
+*   **Universal Constants:** Native support for physical constants ($G, c, \hbar, k_B, \epsilon_0$) as terminal nodes for discovering real-world laws.
+*   **A Priori Probing:** Pre-evolution analysis of the PDE to detect poles, scale invariance, and translational symmetries to bias the search space.
 
-The `PISR-NSGA-II` binary provides granular control over the physics-informed search:
+## Multi-Layer Feasibility Engine (Hard Constraints)
 
-| Parameter | Description | Default |
-| :--- | :--- | :--- |
-| `--only <NAME>` | Target a specific PDE (e.g., `ThomasFermi_2D`, `Navier-Stokes_2D`). | All |
-| `--pop <N>` | Population size for the structural search. | 300 |
-| `--gen <N>` | Maximum number of generations. | 300 |
-| `--domain <N>` | Number of collocation points for the domain residual. | 2000 |
-| `--boundary <N>` | Number of points for boundary and initial conditions. | 500 |
-| `--depth <N>` | Maximum symbolic tree depth. | 8 |
-| `--sigma <F>` | Standard deviation for Gaussian ERC mutation. | 0.20 |
-| `--stop <F>` | Global convergence threshold (MSE). | 1e-7 |
-| `--cores <N>` | Number of CPU threads (0 = Auto-detect). | 1 |
-| `--runs <N>` | Number of independent stochastic executions for statistical analysis. | 1 |
-| `--test` | Debug mode with reduced population and generations. | Off |
+Strict physical and mathematical axioms are enforced via **Constraint-Domination** (Deb 2002). Individuals violating these rules are marked as infeasible:
+*   **Physical Completeness:** Must utilize all independent variables ($x, y, t$) required by the PDE.
+*   **Dimensional Coherence:** Enforces consistency via Buckingham $\Pi$ analysis (e.g., forbids $x + t$ without coefficients).
+*   **Structural Depth Guards:** Hard limits on tree depth ($D \le 6$) and unary nesting depth ($U \le 3$).
+*   **Anti-Nesting Rules:** Explicitly forbids unphysical compositions like $\exp(\exp(u))$, $\sin(\cos(u))$, or nested orthogonal polynomials.
+*   **Numerical Stability:** Rejects solutions with extreme gradients ($\|\nabla u\| > 100$) or zero spatial variance (flat solutions).
+*   **Anti-Linearity Check:** Rejects trivial linear planes ($cx + dy$) for second-order PDEs to force the discovery of functional curvature.
 
-## Execution
+## Optimization Strategy
+
+1.  **Elite Memetic Refinement:** The **Top 20% (Rank-1)** of the population undergoes intensive local polishing in every generation using a hybrid of **Stochastic Hill Climbing** and **Geometric Nelder-Mead Simplex** to tune continuous constants.
+2.  **Consensus-Based RAR:** Every 25 generations, a committee of elite and random individuals identifies regions of high collective residual. The training grid is updated by keeping **70% of stable points** and injecting **30% of new high-residual points**.
+3.  **Cross-Validation Early Stopping:** Discovery is only declared final if the total residual ($Dom + Bnd$) falls below $10^{-12}$ on both the training grid and an unseen validation grid.
+
+## Algorithm Execution
 
 ### Compilation
-Requires a C++17 compliant compiler and CMake 3.10+.
+The project requires a C++17 compliant compiler and CMake 3.10+.
 
 ```bash
+# Configure and Build
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel $(nproc)
 ```
 
-### Full Pipeline
-The pipeline executes the symbolic discovery, neural baselines (DeepXDE), statistical comparison, and LaTeX report generation:
+### Execution Flags and Parameters
+The `PISR-NSGA-II` binary provides granular control via command-line arguments:
+
+| Flag | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `--pop` | `int` | `150` | Population size for the evolutionary search. |
+| `--gen` | `int` | `300` | Maximum number of generations per run. |
+| `--runs` | `int` | `1` | Number of independent stochastic executions for statistical analysis. |
+| `--only <PDE>`| `string`| `(all)` | Target a specific PDE (e.g., `Airy_2D`, `Navier-Stokes_2D`). |
+| `--domain` | `int` | `500` | Initial number of collocation points in the domain ($X_\Omega$). |
+| `--boundary` | `int` | `200` | Number of collocation points on the domain boundaries ($\partial\Omega$). |
+| `--depth` | `int` | `6` | Hard limit for the maximum symbolic tree depth ($D_{max}$). |
+| `--sigma` | `float` | `0.20` | Standard deviation for Gaussian constant (ERC) mutations. |
+| `--stop` | `float` | `1e-12`| Combined residual threshold for Early Stopping. |
+| `--general` | `flag` | `off` | **General Mode:** Ignores BCs to discover general families of solutions. |
+| `--cores` | `int` | `1` | Number of CPU threads for OpenMP parallelism (0 = Auto). |
+| `--test` | `flag` | `off` | Debug mode: reduced pop (10), gen (5), and automated multi-core scaling. |
+
+## Scientific Reporting
+
+The framework outputs journal-ready results:
+*   **Formal LaTeX Engine:** Generates textbook-quality equations with precedence-aware parentheses and identity element removal (e.g., hides $0.0$ additions and $1.0$ multipliers).
+*   **Intelligent Constant Rounding:** Symbolic constants are snapped to integers if within $\epsilon < 0.05$.
+*   **Polynomial Snapping:** Orthogonal polynomial degrees are aggressively rounded to natural numbers ($n \in \{0..10\}$).
+
+## CLI Example
 
 ```bash
-./run_pipeline.sh
-```
+# Execute definitive 14-equation benchmark on 8 cores
+./build/PISR-NSGA-II --cores 8
 
-The comprehensive analysis is output to `report/results.pdf`.
+# High-precision discovery on a specific complex PDE
+./build/PISR-NSGA-II --only Navier-Stokes-Unsteady_2D --pop 300 --gen 500 --stop 1e-13 --cores 8
+```

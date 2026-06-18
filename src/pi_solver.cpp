@@ -108,8 +108,8 @@ static int tournament_select(const std::vector<PIIndividual>& pop, std::mt19937&
 namespace Config {
     int    POP_SIZE       = 150;   
     int    MAX_GEN        = 300;   
-    int    N_DOMAIN       = 2000;  
-    int    N_BOUNDARY     = 500;   
+    int    N_DOMAIN       = 500;  
+    int    N_BOUNDARY     = 200;   
     double ERC_SIGMA      = 0.20;  
     int    MAX_TREE_DEPTH = 6;
     double CROSSOVER_PROB = 0.80;  

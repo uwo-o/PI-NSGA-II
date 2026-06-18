@@ -699,7 +699,20 @@ void TerminalNode::round_constants(double epsilon) {
     if (type == NodeType::ERC) { double r = erc_val.real(); double nearest = std::round(r); if (std::abs(r - nearest) < epsilon) erc_val = Complex(nearest, erc_val.imag()); }
 }
 void UnaryNode::round_constants(double epsilon) { if (child) child->round_constants(epsilon); }
-void BinaryNode::round_constants(double epsilon) { if (left) left->round_constants(epsilon); if (right) right->round_constants(epsilon); }
+void BinaryNode::round_constants(double epsilon) { 
+    if (left) left->round_constants(epsilon); 
+    if (right) {
+        if (is_polynomial(type)) {
+            // Snapping agresivo para el grado del polinomio (siempre entero)
+            double r = right->eval_t(0,0,0).real();
+            double nearest = std::round(r);
+            // Reemplazamos el nodo derecho por un ERC entero exacto
+            right = make_erc(Complex(nearest, 0.0));
+        } else {
+            right->round_constants(epsilon); 
+        }
+    }
+}
 void SeriesNode::round_constants(double epsilon) { for (auto& c : coeffs) { double r = c.real(); double nearest = std::round(r); if (std::abs(r - nearest) < epsilon) c = Complex(nearest, c.imag()); } if (child) child->round_constants(epsilon); }
 
 NodePtr remove_nested_polynomials(NodePtr node, bool inside_poly) { return node; }
