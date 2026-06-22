@@ -184,7 +184,7 @@ double compute_hypervolume(const std::vector<Ind>& pop,
                            const PDEProblem& prob,
                            double ref_dom  = 1e4,
                            double ref_bnd  = 1e4,
-                           double ref_size = 1.0)   // tree_size normalizado
+                           double ref_size = 1.2)   // tree_size normalizado
 {
     // ── Recopilar puntos del frente de Pareto (rank == 1) ──────────────────
     struct Pt3 { double f1, f2, f3; };

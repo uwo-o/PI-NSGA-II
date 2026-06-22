@@ -1,32 +1,33 @@
-# PISR-NSGA-II: Physics-Informed Multi-Objective Symbolic Regression
+# PISR-MOEA/D: Physics-Informed Multi-Objective Symbolic Regression
 
-PISR-NSGA-II is an advanced technical framework for the **symbolic discovery of physical laws** governed by Ordinary and Partial Differential Equations (ODEs/PDEs). It integrates high-fidelity Automatic Differentiation (AD) with a tri-objective evolutionary engine based on NSGA-II to discover mathematically elegant, interpretable, and physically consistent models from collocation data.
+PISR-MOEA/D is an advanced technical framework for the **symbolic discovery of physical laws** governed by Ordinary and Partial Differential Equations (ODEs/PDEs). It integrates high-fidelity Automatic Differentiation (AD) with a bi-objective evolutionary engine based on MOEA/D to discover mathematically elegant, interpretable, and physically consistent models from collocation data.
 
-## Core Optimization Engine: Pure NSGA-II
+## Core Optimization Engine: Pure MOEA/D
 
-PISR-NSGA-II stands out by employing a **Pure, Multi-Objective Genetic Algorithm (NSGA-II)**, avoiding the traditional pitfalls of single-objective "weighted sum" approaches that require manual tuning of loss coefficients ($\lambda_{pde}, \lambda_{bc}$).
+PISR-MOEA/D stands out by employing a **Pure, Multi-Objective Evolutionary Algorithm based on Decomposition (MOEA/D)**, avoiding the traditional pitfalls of single-objective "weighted sum" approaches that require manual tuning of loss coefficients ($\lambda_{pde}, \lambda_{bc}$).
 
 ### Competitive Selection Strategy
-The framework utilizes the canonical selection operators introduced by Deb (2002):
-1.  **Fast Non-Dominated Sorting:** Population is partitioned into hierarchical fronts (Rank 1, 2, ...). An individual $A$ dominates $B$ only if it is no worse in all objectives and strictly better in at least one. This ensures that accurate, simple, and physically consistent models are naturally prioritized.
-2.  **Crowding Distance Assignment:** Within the same rank, individuals are selected based on their spatial sparsity in the objective space. This mechanism **preserves genetic diversity**, preventing the population from collapsing into a single solution and allowing the discovery of a family of candidate physical laws.
+The framework utilizes Tchebycheff decomposition to handle multiple objectives efficiently:
+1.  **Tchebycheff Scalarization:** The problem is decomposed into multiple scalar sub-problems, uniformly distributed across the objective space. This ensures a perfectly uniform Pareto Front without artificial logarithmic distortions.
+2.  **Neighborhood Mating:** Individuals mate and compete locally with neighboring sub-problems, significantly improving search efficiency and preserving genetic diversity.
 3.  **Lexicographic Tie-Breaking:** To further combat bloat, our implementation uses tree complexity as a final tie-breaker between models with identical error metrics, favoring the most parsimonious analytical form.
 
 ## Key Algorithm Qualities
 
-*   **Zero-Loss Weight Tuning:** By treating discovery as a Pareto optimization, the user never has to guess the "correct" importance of the boundary error relative to the PDE residual.
+*   **SOTA Exact Ansatz:** For 1D PDEs, it strictly enforces boundary conditions structurally via $U(x) = L(x) + B(x) \cdot N(x)$, mathematically locking boundary error to zero and removing it from the search space.
+*   **Linear Basis Separation:** The genetic operators explicitly force expressions into a Basis Dictionary ($\sum C_i \phi_i$), bypassing the chain-rule explosion typical of deep tree mutations.
 *   **Agnostic Physics Discovery:** The engine is functionally blind to the specific PDE type, discovering fluid flows, quantum wavefunctions, and singular potentials using a unified structural logic.
 *   **Analytical Interpretability:** Unlike black-box neural networks, the output is a formal mathematical expression that can be scrutinized, derived, and simplified using standard calculus.
 *   **High-Order Stability:** Through the hybrid AD-FDM motor, the engine remains numerically stable even when evaluating complex operators like the biharmonic or vorticity advection.
-*   **Extreme Precision:** The combination of global genetic exploration and local Nelder-Mead simplex refinement allows the engine to bridge the gap between "rough structural discovery" and "machine-precision coefficient tuning" ($10^{-15}$).
+*   **Extreme Precision:** The combination of global genetic exploration and local Adaptive Gradient Descent allows the engine to bridge the gap between "rough structural discovery" and "machine-precision coefficient tuning" ($10^{-15}$).
 
 ## Core Architecture
 
-### Tri-Objective Optimization Engine
-The framework treats physics discovery as a multi-objective search, balancing three competing goals:
+### Bi-Objective Optimization Engine
+The framework treats physics discovery as a multi-objective search, balancing competing goals:
 1.  **Domain Residual ($\mathcal{L}_{dom}$):** The degree to which the candidate function $\hat{u}(\mathbf{x})$ satisfies the differential operator $\mathcal{F}[\hat{u}] = 0$ across the spatial/temporal domain.
-2.  **Boundary Integrity ($\mathcal{L}_{bc}$):** Mean Squared Error (MSE) against Dirichlet, Neumann, or Initial conditions on the domain boundaries.
-3.  **Parsimony (Structural Complexity):** Total node count of the symbolic tree, explicitly rewarding "Occam's Razor" to prevent expression bloat and overfitting.
+2.  **Parsimony (Structural Complexity):** Total node count of the symbolic tree, explicitly rewarding "Occam's Razor" to prevent expression bloat and overfitting.
+(Note: $\mathcal{L}_{bc}$ is constrained strictly to zero via Exact Boundary Ansatz for applicable boundaries).
 
 ### Hybrid Evaluation Engine (AD-FDM)
 *   **Exact AD (Order $\le 2$):** Uses recursive polymorphic tree traversal to compute exact spatial and temporal derivatives ($\nabla u, \nabla^2 u, u_t$) without numerical noise.
@@ -52,7 +53,7 @@ Strict physical and mathematical axioms are enforced via **Constraint-Domination
 
 ## Optimization Strategy
 
-1.  **Elite Memetic Refinement:** The **Top 20% (Rank-1)** of the population undergoes intensive local polishing in every generation using a hybrid of **Stochastic Hill Climbing** and **Geometric Nelder-Mead Simplex** to tune continuous constants.
+1.  **Elite Gradient Refinement:** The **Top 20% (Rank-1)** of the population undergoes intensive local polishing in every generation using an **Adaptive Gradient Descent** algorithm. This evaluates exact gradients of the residual with respect to the ERC constants via finite differences, locking them to machine precision.
 2.  **Consensus-Based RAR:** Every 25 generations, a committee of elite and random individuals identifies regions of high collective residual. The training grid is updated by keeping **70% of stable points** and injecting **30% of new high-residual points**.
 3.  **Cross-Validation Early Stopping:** Discovery is only declared final if the total residual ($Dom + Bnd$) falls below $10^{-12}$ on both the training grid and an unseen validation grid.
 

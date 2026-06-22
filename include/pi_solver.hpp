@@ -56,6 +56,7 @@ private:
     PIIndividual random_individual_special();
     PIIndividual make_offspring(const PIIndividual& a, const PIIndividual& b);
     void hill_climb_constants(PIIndividual& ind, int iterations, std::mt19937& thread_gen);
+    void gradient_descent_constants(PIIndividual& ind, int iterations);
     void nelder_mead_polish(PIIndividual& ind, int max_iter = 500);
     void differential_evolution_polish(PIIndividual& ind, int max_iter = 100);
 public:

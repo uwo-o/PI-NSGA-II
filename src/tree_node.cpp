@@ -380,6 +380,12 @@ NodePtr BinaryNode::simplify() const {
         if (is_one(lv_v)) return sr; if (is_one(rv_v)) return sl;
     }
     if (type == NodeType::DIV) { if (is_zero(lv_v)) return make_erc(0.0); if (is_one(rv_v)) return sl; if (sl->print_str() == sr->print_str()) return make_erc(1.0); }
+    if (type == NodeType::POW) {
+        if (is_zero(rv_v)) return make_erc(1.0);
+        if (is_one(rv_v)) return sl;
+        if (is_zero(lv_v)) return make_erc(0.0);
+        if (is_one(lv_v)) return make_erc(1.0);
+    }
     return std::make_unique<BinaryNode>(type, std::move(sl), std::move(sr));
 }
 NodePtr BinaryNode::prune_recursive(const PDEProblem& p, const std::vector<Point>& d, const std::vector<Point>& b, double o, double t) {
@@ -754,29 +760,68 @@ void replace_node_at(NodePtr& cur, int& idx, NodePtr& rep) {
     }
 }
 
+std::vector<NodePtr> extract_additive_terms(const NodePtr& root) {
+    std::vector<NodePtr> terms;
+    if (!root) return terms;
+    if (root->get_type() == NodeType::ADD) {
+        auto* bn = dynamic_cast<const BinaryNode*>(root.get());
+        auto left_terms = extract_additive_terms(bn->left);
+        auto right_terms = extract_additive_terms(bn->right);
+        for (auto& t : left_terms) terms.push_back(std::move(t));
+        for (auto& t : right_terms) terms.push_back(std::move(t));
+    } else if (root->get_type() == NodeType::SUB) {
+        auto* bn = dynamic_cast<const BinaryNode*>(root.get());
+        auto left_terms = extract_additive_terms(bn->left);
+        auto right_terms = extract_additive_terms(bn->right);
+        for (auto& t : left_terms) terms.push_back(std::move(t));
+        for (auto& t : right_terms) {
+            terms.push_back(make_binary(NodeType::MUL, make_erc(-1.0), std::move(t)));
+        }
+    } else {
+        terms.push_back(root->clone());
+    }
+    return terms;
+}
+
+NodePtr build_additive_tree(const std::vector<NodePtr>& terms) {
+    if (terms.empty()) return make_erc(0.0);
+    NodePtr root = terms[0]->clone();
+    for (size_t i = 1; i < terms.size(); ++i) {
+        root = make_binary(NodeType::ADD, std::move(root), terms[i]->clone());
+    }
+    return root;
+}
+
 NodePtr tree_mutate(const NodePtr& t, std::mt19937& gen, const PDEProblem& p) {
-    if (!t) return random_tree(2, gen, p);
-    NodePtr res = t->clone();
-    int sz = res->count_nodes();
-    int target = std::uniform_int_distribution<int>(0, sz - 1)(gen);
-    NodePtr sub = random_tree(1, gen, p);
-    replace_node_at(res, target, sub);
-    return res->simplify();
+    if (!t) return make_binary(NodeType::MUL, make_erc(1.0), random_tree(2, gen, p));
+    auto terms = extract_additive_terms(t);
+    if (!terms.empty()) {
+        int type_mut = std::uniform_int_distribution<int>(0, 2)(gen);
+        if (type_mut == 0 && terms.size() > 1) {
+            int idx = std::uniform_int_distribution<int>(0, terms.size() - 1)(gen);
+            terms.erase(terms.begin() + idx);
+        } else if (type_mut == 1) {
+            terms.push_back(make_binary(NodeType::MUL, make_erc(1.0), random_tree(2, gen, p)));
+        } else {
+            int idx = std::uniform_int_distribution<int>(0, terms.size() - 1)(gen);
+            terms[idx] = make_binary(NodeType::MUL, make_erc(1.0), random_tree(2, gen, p));
+        }
+        return build_additive_tree(terms)->simplify();
+    }
+    return make_binary(NodeType::MUL, make_erc(1.0), random_tree(2, gen, p));
 }
 
 std::pair<NodePtr, NodePtr> tree_crossover(const NodePtr& p1, const NodePtr& p2, std::mt19937& gen) {
     if (!p1 || !p2) return {p1 ? p1->clone() : nullptr, p2 ? p2->clone() : nullptr};
-    int n1 = p1->count_nodes(), n2 = p2->count_nodes();
-    int pt1 = std::uniform_int_distribution<int>(0, n1 - 1)(gen);
-    int pt2 = std::uniform_int_distribution<int>(0, n2 - 1)(gen);
-    int idx2 = pt2; NodePtr sub2 = get_node_at(p2, idx2);
-    int idx1 = pt1; NodePtr sub1 = get_node_at(p1, idx1);
-    if (sub1 && sub2) {
-        NodePtr c1 = p1->clone(); NodePtr c2 = p2->clone();
-        int r1 = pt1; replace_node_at(c1, r1, sub2);
-        int r2 = pt2; replace_node_at(c2, r2, sub1);
-        if (c1->get_depth() <= Config::MAX_TREE_DEPTH && c2->get_depth() <= Config::MAX_TREE_DEPTH)
-            return {c1->simplify(), c2->simplify()};
+    auto terms1 = extract_additive_terms(p1);
+    auto terms2 = extract_additive_terms(p2);
+    if (!terms1.empty() && !terms2.empty()) {
+        int idx1 = std::uniform_int_distribution<int>(0, terms1.size() - 1)(gen);
+        int idx2 = std::uniform_int_distribution<int>(0, terms2.size() - 1)(gen);
+        NodePtr temp = std::move(terms1[idx1]);
+        terms1[idx1] = std::move(terms2[idx2]);
+        terms2[idx2] = std::move(temp);
+        return {build_additive_tree(terms1)->simplify(), build_additive_tree(terms2)->simplify()};
     }
     return {p1->clone(), p2->clone()};
 }
