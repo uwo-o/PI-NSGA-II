@@ -166,6 +166,11 @@ void PIIndividual::evaluate(const PDEProblem& prob,
         constraint_violation += 1.0;
     }
 
+    if (tree->has_non_affine_trig_arg()) {
+        is_feasible = false;
+        constraint_violation += 1.0;
+    }
+
     if (tree->has_nested_polynomial()) {
         is_feasible = false;
         constraint_violation += 1.0;
@@ -205,7 +210,7 @@ void PIIndividual::evaluate(const PDEProblem& prob,
     }
     if (!dom.empty()) pde_mse /= dom.size();
 
-    if (max_grad > 100.0) { is_feasible = false; constraint_violation += 1.0; }
+    if (max_grad > 15.0) { is_feasible = false; constraint_violation += 5.0; }
     
     // Varianza de la función
     if (!sample_values.empty()) {
@@ -358,14 +363,13 @@ void PISolver::apply_committee_rar() {
     if (committee.empty()) return;
     int pool_size = Config::RAR_CANDIDATES;
     struct ScoredPoint { Point p; double score; };
-    std::vector<ScoredPoint> scored; scored.reserve(pool_size);
+    std::vector<ScoredPoint> scored(pool_size);
     unsigned int seed_base = gen_();
     #pragma omp parallel
     {
         std::mt19937 thread_gen(seed_base + omp_get_thread_num());
         std::uniform_real_distribution<double> ud(0, 1);
-        std::vector<ScoredPoint> thread_scored;
-        #pragma omp for
+        #pragma omp for schedule(static)
         for (int i = 0; i < pool_size; ++i) {
             double tx = ud(thread_gen), ty = ud(thread_gen);
             double tt = (prob_.is_unsteady) ? ud(thread_gen) : 0.0;
@@ -379,10 +383,8 @@ void PISolver::apply_committee_rar() {
                 if (std::isfinite(err)) { sum_error += err; valid_count++; }
             }
             double consensus_score = (valid_count > 0) ? (sum_error / valid_count) : 0.0;
-            if (std::isfinite(consensus_score)) thread_scored.push_back({p, consensus_score});
+            scored[i] = {p, std::isfinite(consensus_score) ? consensus_score : 0.0};
         }
-        #pragma omp critical
-        scored.insert(scored.end(), thread_scored.begin(), thread_scored.end());
     }
     std::sort(scored.begin(), scored.end(), [](const ScoredPoint& a, const ScoredPoint& b){ return a.score > b.score; });
     int n_total = (prob_.dim == 1) ? Config::N_DOMAIN : 4000;
@@ -424,8 +426,6 @@ std::vector<PIIndividual> PISolver::run(int pop_size, int max_gen) {
     population_ = nsga2_select_next(std::move(population_), pop_size);
     update_hall_of_fame();
     int n_threads = omp_get_max_threads();
-    std::vector<std::mt19937> gen_thread(n_threads);
-    for (int i = 0; i < n_threads; ++i) gen_thread[i].seed(gen_() + i);
 
     for (int g = 0; g < max_gen; ++g) {
         current_gen_ = g;
@@ -503,13 +503,11 @@ std::vector<PIIndividual> PISolver::run(int pop_size, int max_gen) {
 
         population_ = nsga2_select_next(std::move(combined), pop_size);
 
-        #pragma omp parallel
-        {
-            std::mt19937& t_gen = gen_thread[omp_get_thread_num()];
-            #pragma omp for
-            for (int i = 0; i < (int)population_.size(); ++i) {
-                if (population_[i].rank == 1) hill_climb_constants(population_[i], (g % 10 == 0 ? 150 : 40), t_gen);
-            }
+        unsigned int g_seed = gen_();
+        #pragma omp parallel for schedule(static)
+        for (int i = 0; i < (int)population_.size(); ++i) {
+            std::mt19937 local_gen(g_seed + i);
+            if (population_[i].rank == 1) hill_climb_constants(population_[i], (g % 10 == 0 ? 150 : 40), local_gen);
         }
         if (g % 25 == 0) {
             double b_dom = 1e18, b_bnd = 1e18;
@@ -540,12 +538,12 @@ void PISolver::polish_constants(PIIndividual& ind) {
     if (!ind.tree) return;
     std::vector<Complex*> ercs; ind.tree->collect_ercs(ercs);
     if (ercs.empty()) return;
-    std::cout << "  [Optimizer] Polishing " << ercs.size() << " constants via Hybrid Nelder-Mead...\n";
+    std::cout << "  [Optimizer] Polishing " << ercs.size() << " constants via Micro Differential Evolution...\n";
     double orig = Config::ERC_SIGMA;
     Config::ERC_SIGMA = 0.2;  hill_climb_constants(ind, 500, gen_);
     Config::ERC_SIGMA = 0.01; hill_climb_constants(ind, 300, gen_);
     Config::ERC_SIGMA = orig;
-    nelder_mead_polish(ind, 1000);
+    differential_evolution_polish(ind, 100);
     ind.evaluate(prob_, dom_pts_, bnd_pts_, current_gen_);
 }
 

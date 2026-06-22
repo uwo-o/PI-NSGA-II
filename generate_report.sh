@@ -14,4 +14,4 @@ echo ">>> Step 5: LaTeX Compilation"
 cd report
 pdflatex -interaction=nonstopmode results.tex > /dev/null
 pdflatex -interaction=nonstopmode results.tex > /dev/null
-cd ..
+cd ..cp report/results.pdf .

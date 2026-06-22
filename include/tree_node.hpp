@@ -62,6 +62,8 @@ public:
     virtual int get_unary_depth() const = 0;
     virtual bool has_nested_trig() const = 0;
     virtual bool contains_trig() const = 0;
+    virtual bool is_strictly_affine() const = 0;
+    virtual bool has_non_affine_trig_arg() const = 0;
     virtual bool has_nested_polynomial() const = 0;
     virtual bool contains_polynomial() const = 0;
     virtual bool has_nested_exp() const = 0;
@@ -111,6 +113,8 @@ public:
     int get_unary_depth() const override { return 0; }
     bool has_nested_trig() const override { return false; }
     bool contains_trig() const override { return is_trig(type); }
+    bool is_strictly_affine() const override { return true; }
+    bool has_non_affine_trig_arg() const override { return false; }
     bool has_nested_polynomial() const override { return false; }
     bool contains_polynomial() const override { return is_polynomial(type); }
     bool has_nested_exp() const override { return false; }
@@ -153,6 +157,8 @@ public:
     bool has_nested_exp() const override;
     bool contains_exp() const override;
     bool has_invalid_polynomial_degree() const override;
+    bool is_strictly_affine() const override;
+    bool has_non_affine_trig_arg() const override;
     NodePtr clone() const override;
     int count_nodes() const override;
     int get_depth() const override;
@@ -191,6 +197,8 @@ public:
     bool has_nested_exp() const override;
     bool contains_exp() const override;
     bool has_invalid_polynomial_degree() const override;
+    bool is_strictly_affine() const override;
+    bool has_non_affine_trig_arg() const override;
     NodePtr clone() const override;
     int count_nodes() const override;
     int get_depth() const override;
@@ -232,6 +240,8 @@ public:
     bool has_nested_exp() const override;
     bool contains_exp() const override;
     bool has_invalid_polynomial_degree() const override;
+    bool is_strictly_affine() const override;
+    bool has_non_affine_trig_arg() const override;
     NodePtr clone() const override;
     int count_nodes() const override;
     int get_depth() const override;

@@ -73,7 +73,7 @@ def truth_label(pde):
     return "Numerical Truth" if pde in NUMERICAL_TRUTH else "Analytical"
 
 # ─── 1D ────────────────────────────────────────────────────────────────────────
-def plot_1d(pde, df_pi, df_pn=None):
+def plot_1d(pde, df_pi, df_pn=None, df_pysr=None):
     fig = plt.figure(figsize=(14, 12), layout="constrained")
     fig.suptitle(PDE_LABELS.get(pde, pde) + "  —  1D Analysis", fontweight="bold")
     
@@ -94,25 +94,29 @@ def plot_1d(pde, df_pi, df_pn=None):
         ax_err.plot(x, err_pi, "b-", lw=2.0, label="Error PISR-NSGA-II")
 
     if df_pn is not None:
-        ax_sol.plot(df_pn["x"], df_pn["u_approx"], "g-.", lw=2.0, label="DeepXDE", zorder=6)
+        pn_x = df_pn["x"] if "x" in df_pn.columns else df_pn["t"]
+        ax_sol.plot(pn_x, df_pn["u_approx"], "g-.", lw=2.0, label="DeepXDE", zorder=6)
         err_pn = np.abs(df_pn["u_exact"].values - df_pn["u_approx"].values)
         err_pn = np.clip(err_pn, 1e-32, None)
-        ax_err.plot(df_pn["x"], err_pn, "g-", lw=1.5, label="Error DeepXDE")
+        ax_err.plot(pn_x, err_pn, "g-", lw=1.5, label="Error DeepXDE")
 
-    if df_pi is not None and df_pn is not None:
-        err_pi_pn = np.abs(df_pi["u_approx"].values - df_pn["u_approx"].values)
-        err_pi_pn = np.clip(err_pi_pn, 1e-32, None)
-        ax_err.plot(x, err_pi_pn, "r:", lw=2.5, label="|PISR vs PINN|")
+    if df_pysr is not None:
+        pysr_x = df_pysr["x"] if "x" in df_pysr.columns else df_pysr["t"]
+        ax_sol.plot(pysr_x, df_pysr["u_approx"], "c:", lw=2.0, label="PySR", zorder=5)
+        err_pysr = np.abs(df_pysr["u_exact"].values - df_pysr["u_approx"].values)
+        ax_err.plot(pysr_x, np.clip(err_pysr, 1e-32, None), "c-", lw=1.5, label="Error PySR")
 
     ax_sol.set_ylabel("u(x)", labelpad=15)
     ax_sol.legend(frameon=True, loc="best")
     ax_sol.grid(True, alpha=0.2)
+    ax_sol.set_xlim(x.min(), x.max())
 
     ax_err.set_yscale("log")
     ax_err.set_xlabel("x", labelpad=10)
     ax_err.set_ylabel("Absolute Error", labelpad=15)
     ax_err.legend(frameon=True, loc="best")
     ax_err.grid(True, which="both", alpha=0.2)
+    ax_err.set_xlim(x.min(), x.max())
 
     out = os.path.join(FIGS_DIR, f"solution_1d_{pde}.pdf")
     plt.savefig(out, bbox_inches="tight")
@@ -120,7 +124,7 @@ def plot_1d(pde, df_pi, df_pn=None):
     print(f"  [1D] {pde}: {out}")
 
 # ─── 2D ────────────────────────────────────────────────────────────────────────
-def plot_2d(pde, df_pi, df_pn=None):
+def plot_2d(pde, df_pi, df_pn=None, df_pysr=None):
     if "t" in df_pi.columns:
         t_slice = np.unique(df_pi["t"].values)[0]
         df_pi = df_pi[df_pi["t"] == t_slice]
@@ -140,10 +144,13 @@ def plot_2d(pde, df_pi, df_pn=None):
         ("PISR-NSGA-II", Z_pi, np.abs(Z_ex - Z_pi), CMAP_SOLUTION)
     ]
     
-    if df_pn is not None:
+    if df_pn is not None and len(df_pn) == N * N:
         Z_pn = df_pn["u_approx"].values.reshape(N, N)
         cols.append(("DeepXDE", Z_pn, np.abs(Z_ex - Z_pn), CMAP_SOLUTION))
-        cols.append(("|PISR vs PINN|", np.abs(Z_pi - Z_pn), np.abs(Z_pi - Z_pn), CMAP_ERROR))
+
+    if df_pysr is not None and len(df_pysr) == N * N:
+        Z_pysr = df_pysr["u_approx"].values.reshape(N, N)
+        cols.append(("PySR", Z_pysr, np.abs(Z_ex - Z_pysr), CMAP_SOLUTION))
 
     n_cols = len(cols)
     fig = plt.figure(figsize=(6 * n_cols, 10), layout="constrained")
@@ -175,13 +182,18 @@ def plot_2d(pde, df_pi, df_pn=None):
 
 def plot_equation(pde, dim):
     suffix = f"_{dim}D"
+    
     path_pi = find_file(f"grid_{pde}{suffix}_PI-NSGA-II.csv")
     path_pn = find_file(f"grid_{pde}{suffix}_DeepXDE.csv") or find_file(f"grid_{pde}{suffix}_PINN.csv")
+    path_pysr = find_file(f"grid_{pde}{suffix}_PySR.csv")
+    
     if not path_pi: return
     df_pi = pd.read_csv(path_pi)
     df_pn = pd.read_csv(path_pn) if path_pn else None
-    if dim == 1: plot_1d(pde, df_pi, df_pn)
-    else: plot_2d(pde, df_pi, df_pn)
+    df_pysr = pd.read_csv(path_pysr) if path_pysr else None
+    
+    if dim == 1: plot_1d(pde, df_pi, df_pn, df_pysr)
+    else: plot_2d(pde, df_pi, df_pn, df_pysr)
 
 def main():
     skips_1d = {"NonlinearPoisson", "Liouville", "Sine-Gordon", "Navier-Stokes", "Navier-Stokes-Unsteady", "Bratu", "Allen-Cahn"}

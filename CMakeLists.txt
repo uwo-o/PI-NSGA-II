@@ -25,6 +25,7 @@ set(SOURCES
     src/numerical_solver.cpp
     src/pi_solver.cpp
     src/optimizer_nelder_mead.cpp
+    src/optimizer_de.cpp
     main.cpp
 )
 

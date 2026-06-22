@@ -1,0 +1,2 @@
+method,pde,best_mse_domain,best_mse_boundary,mse_total,runtime_s
+PySR,Duffing_1D,1.4107795066839787e-05,0.0,1.4107795066839787e-05,35.193357944488525

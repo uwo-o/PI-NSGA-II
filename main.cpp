@@ -316,8 +316,8 @@ void print_table(const std::string& lbl, const Stats& p) {
 }
 
 // ─── Una corrida completa (Solo PI-NSGA-II) ──────────────────────────────────
-std::vector<Stats> run_once(int run_id, const std::string& out_dir, bool verbose, bool is_test, const std::string& only_pde) {
-    unsigned seed_base = 1000u * (unsigned)(run_id + 1);
+std::vector<Stats> run_once(int run_id, const std::string& out_dir, bool verbose, bool is_test, const std::string& only_pde, bool replicable) {
+    unsigned seed_base = replicable ? (1000u * (unsigned)(run_id + 1)) : std::random_device{}();
     std::vector<PDEProblem> all_problems;
     
     // 1D y 2D Hardcore Equations
@@ -473,6 +473,7 @@ void print_usage(char* prog) {
               << "Options:\n"
               << "  --runs N          Number of independent runs (default: 1)\n"
               << "  --test            Fast test mode (small pop/gen)\n"
+              << "  --replicable      Use deterministic seeds for reproducibility\n"
               << "  --only NAME       Run only a specific PDE (e.g., Airy_1D)\n"
               << "  --pop N           Population size (default: 300)\n"
               << "  --gen N           Max generations (default: 300)\n"
@@ -488,11 +489,13 @@ void print_usage(char* prog) {
 int main(int argc, char* argv[]) {
     int n_runs = 1;
     bool is_test = false;
+    bool replicable = false;
     std::string only_pde = "";
 
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--runs") == 0 && i+1 < argc) n_runs = std::atoi(argv[++i]);
         else if (std::strcmp(argv[i], "--test") == 0) is_test = true;
+        else if (std::strcmp(argv[i], "--replicable") == 0) replicable = true;
         else if (std::strcmp(argv[i], "--only") == 0 && i+1 < argc) only_pde = argv[++i];
         else if (std::strcmp(argv[i], "--pop") == 0 && i+1 < argc) Config::POP_SIZE = std::atoi(argv[++i]);
         else if (std::strcmp(argv[i], "--gen") == 0 && i+1 < argc) Config::MAX_GEN = std::atoi(argv[++i]);
@@ -526,6 +529,7 @@ int main(int argc, char* argv[]) {
     std::cout << "=============================================================\n";
     std::cout << "  PI-NSGA-II --- Orquestador de Ecuaciones PDE\n";
     std::cout << "  Pop=" << Config::POP_SIZE << "  Gen=" << Config::MAX_GEN << "  Runs=" << n_runs << "\n";
+    if (replicable) std::cout << "  [!] Modo --replicable ACTIVADO (Semillas Deterministas)\n";
     std::cout << "=============================================================\n\n";
 
     fs::create_directories("results");
@@ -544,7 +548,7 @@ int main(int argc, char* argv[]) {
         std::string out_dir = (n_runs == 1) ? "results" : "results/run_" + std::to_string(r);
         if (n_runs > 1) fs::create_directories(out_dir);
         
-        auto stats = run_once(r, out_dir, verbose, is_test, only_pde);
+        auto stats = run_once(r, out_dir, verbose, is_test, only_pde, replicable);
         all_runs.push_back(stats);
         save_summary(stats, out_dir + "/comparison_summary.csv");
 

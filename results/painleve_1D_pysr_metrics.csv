@@ -1,0 +1,2 @@
+method,pde,best_mse_domain,best_mse_boundary,mse_total,runtime_s
+PySR,painleve_1D,4.946633741295577e-08,0.0,4.946633741295577e-08,29.733192920684814

@@ -1,0 +1,2 @@
+method,pde,best_mse_domain,best_mse_boundary,mse_total,runtime_s
+PySR,ginzburg_landau_2D,0.001810892132269913,0.0,0.001810892132269913,56.95598268508911

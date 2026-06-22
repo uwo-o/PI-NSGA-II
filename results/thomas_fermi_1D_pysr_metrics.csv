@@ -1,0 +1,2 @@
+method,pde,best_mse_domain,best_mse_boundary,mse_total,runtime_s
+PySR,thomas_fermi_1D,0.38136223577700523,0.0,0.38136223577700523,36.92162752151489

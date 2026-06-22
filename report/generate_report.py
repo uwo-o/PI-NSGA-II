@@ -104,18 +104,68 @@ def load_pinn() -> pd.DataFrame:
     return df
 
 
+def load_sota() -> pd.DataFrame:
+    pattern = os.path.join(RESULTS_DIR, "**", "*_metrics.csv")
+    files   = glob.glob(pattern, recursive=True)
+    files  += glob.glob(os.path.join(RESULTS_DIR, "*_metrics.csv"))
+    files   = list(set(files))
+
+    if not files: return pd.DataFrame()
+
+    dfs = []
+    for f in files:
+        try:
+            tmp = pd.read_csv(f)
+            dfs.append(tmp)
+        except Exception as e: print(f"  [WARN] Skipping {f}: {e}")
+
+    if not dfs: return pd.DataFrame()
+    df = pd.concat(dfs, ignore_index=True)
+    
+    # Map SOTA pde names back to PISR-NSGA-II standard names
+    sota_to_pisr = {
+        "airy": "Airy",
+        "fisher": "Fisher",
+        "duffing": "Duffing",
+        "thomas_fermi": "Thomas-Fermi",
+        "lane_emden": "Lane-Emden",
+        "troesch": "Troesch",
+        "painleve": "Painleve-I",
+        "ginzburg_landau": "Ginzburg-Landau"
+    }
+    
+    def map_pde_name(x):
+        for sota, pisr in sota_to_pisr.items():
+            if x.startswith(sota + "_"):
+                return x.replace(sota + "_", pisr + "_")
+        return x
+        
+    df["pde"] = df["pde"].apply(map_pde_name)
+    
+    # SOTA scripts output columns: method, pde, best_mse_domain, best_mse_boundary, mse_total, runtime_s
+    return df
+
+
 def load_all() -> pd.DataFrame:
     df_main = load_pi_rk4()
     df_pinn = load_pinn()
+    df_sota = load_sota()
+    
     if not df_main.empty: df_main["mse_total_std"] = 0.0
-    if df_pinn.empty and df_main.empty: return pd.DataFrame()
-    if df_pinn.empty: return df_main
-    if df_main.empty: return df_pinn
+    
+    frames = []
+    if not df_main.empty: frames.append(df_main)
+    if not df_pinn.empty: frames.append(df_pinn)
+    if not df_sota.empty: frames.append(df_sota)
+    
+    if not frames: return pd.DataFrame()
+    
     keep = ["method", "pde", "best_mse_domain", "best_mse_boundary", "mse_total", "mse_total_std", "runtime_s"]
-    for c in keep:
-        if c not in df_main.columns: df_main[c] = np.nan
-        if c not in df_pinn.columns: df_pinn[c] = np.nan
-    return pd.concat([df_main[keep], df_pinn[keep]], ignore_index=True)
+    for df in frames:
+        for c in keep:
+            if c not in df.columns: df[c] = np.nan
+            
+    return pd.concat([df[keep] for df in frames], ignore_index=True)
 
 # ─── Tabla 3: Tiempo de Ejecución ─────────────────────────────────────────────
 def make_runtime_table():
@@ -128,9 +178,9 @@ def make_runtime_table():
         r"  \caption{Execution Time Comparison (seconds).}",
         r"  \label{tab:runtime_stats}",
         r"  \resizebox{\textwidth}{!}{",
-        r"  \begin{tabular}{llccc}",
+        r"  \begin{tabular}{llccccc}",
         r"    \toprule",
-        r"    \textbf{PDE} & \textbf{Dim} & \textbf{RK4/FDM} & \textbf{DeepXDE} & \textbf{PISR-NSGA-II} \\",
+        r"    \textbf{PDE} & \textbf{Dim} & \textbf{RK4/FDM} & \textbf{DeepXDE} & \textbf{PySR} & \textbf{PISR-NSGA-II} \\",
         r"    \midrule"
     ]
 
@@ -145,12 +195,14 @@ def make_runtime_table():
             t_num = sub[sub["method"] == "RK4/FDM"]["runtime_s"].mean()
             t_pinn = sub[sub["method"] == "DeepXDE"]["runtime_s"].mean()
 
+            t_pysr = sub[sub["method"] == "PySR"]["runtime_s"].mean() if "PySR" in sub["method"].values else np.nan
+
             def f_t(v):
-                if v is None or np.isnan(v) or not np.isfinite(v): return "---"
+                if v is None or pd.isna(v) or not np.isfinite(v): return "---"
                 if v < 0.001: return f"{v:.2e}s"
                 return f"{v:.3f}s"
 
-            lines.append(rf"    {pde_base} & {d}D & {f_t(t_num)} & {f_t(t_pinn)} & {f_t(t_pi)} \\")
+            lines.append(rf"    {pde_base} & {d}D & {f_t(t_num)} & {f_t(t_pinn)} & {f_t(t_pysr)} & {f_t(t_pi)} \\")
             lines.append(r"    \midrule")
 
     if len(lines) > 9: lines[-1] = r"    \bottomrule"
@@ -233,9 +285,9 @@ def make_global_comparison_table():
         r"  \caption{Performance Comparison: Numerical (RK4/FDM), Neural (DeepXDE), and Symbolic (PISR-NSGA-II) Methods (Total MSE).}",
         r"  \label{tab:global_comp_stats}",
         r"  \resizebox{\textwidth}{!}{",
-        r"  \begin{tabular}{llccc}",
+        r"  \begin{tabular}{lccccc}",
         r"    \toprule",
-        r"    \textbf{PDE} & \textbf{Dim} & \textbf{RK4/FDM} & \textbf{DeepXDE} & \textbf{PISR-NSGA-II} \\",
+        r"    \textbf{PDE} & \textbf{Dim} & \textbf{RK4/FDM} & \textbf{DeepXDE} & \textbf{PySR} & \textbf{PISR-NSGA-II} \\",
         r"    \midrule"
     ]
 
@@ -277,12 +329,24 @@ def make_global_comparison_table():
             else:
                 f_pinn = "—"
 
+            # ── PySINDy logic removed ──
+
+            # ── PySR ──
+            pysr_sub = sub[sub["method"] == "PySR"]
+            f_pysr = "—"
+            if not pysr_sub.empty:
+                m = pysr_sub["mse_total"].mean()
+                s_col = "mse_total_std" if "mse_total_std" in pysr_sub.columns else "mse_total"
+                s_val = pysr_sub[s_col].mean() if s_col == "mse_total_std" else pysr_sub["mse_total"].std()
+                s_val = 0.0 if pd.isna(s_val) else s_val
+                f_pysr = fmt_sci_stat(m, s_val)
+
             # Formatear celdas con $…$ solo cuando no son «—»
             def wrap(v):
                 return f"${v}$" if v != "—" else "---"
 
             lines.append(
-                rf"    {pde_base} & {d}D & {wrap(f_num)} & {wrap(f_pinn)} & {wrap(f_pi)} \\"
+                rf"    {pde_base} & {d}D & {wrap(f_num)} & {wrap(f_pinn)} & {wrap(f_pysr)} & {wrap(f_pi)} \\"
             )
             lines.append(r"    \midrule")
 
@@ -395,6 +459,8 @@ def make_latex_report():
         r"",
         r"% ─── METRICS ───────────────────────────────────────────────────────────────",
         r"\section{Performance Metrics}",
+        r"\input{tables/global_comparison.tex}",
+        r"\input{tables/runtime_comparison.tex}",
         r"\input{tables/symbolic_comparison.tex}",
         r"",
         r"% ─── CONVERGENCE ───────────────────────────────────────────────────────────",
@@ -419,7 +485,7 @@ def make_latex_report():
         r"\section{Detailed PDE Analysis}",
         r"The following sections present the symbolic approximations discovered by PISR-NSGA-II and their multi-objective Pareto trade-offs for each benchmark problem.",
         r"",
-        r"In problems where the analytical truth is unknown and the numerical ground truth (RK4/FDM) may fail due to singularities or extreme stiffness (e.g., Troesch, Lane-Emden, Thomas-Fermi), evaluating the absolute error solely against numerical solvers can be misleading. To address this, our visualizations include the absolute error between the Symbolic approximation (PISR-NSGA-II) and the Neural approximation (DeepXDE). When both physics-informed algorithms converge to identical structures ($\mathcal{E}_{PI, PINN} \to 0$), it provides strong empirical evidence that they have discovered the true physical manifold, outperforming classical numerical integration.",
+        r"In problems where the analytical truth is unknown and the numerical ground truth (RK4/FDM) may fail due to singularities or extreme stiffness (e.g., Troesch, Lane-Emden, Thomas-Fermi), evaluating the absolute error solely against numerical solvers can be misleading. Our visualizations now include the symbolic approximations (PISR-NSGA-II) against the data-driven state-of-the-art (PySR) and Neural approximations (DeepXDE). When physics-informed algorithms converge to identical structures without labeled data, it provides strong empirical evidence of physical discovery.",
         r""
     ]
 

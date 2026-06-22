@@ -64,6 +64,38 @@ def main():
         "Navier-Stokes", "Navier-Stokes-Unsteady",
         "Lane-Emden", "Troesch", "Ginzburg-Landau", "Painleve-I"
     ]
+    sota_map = {
+        "Thomas-Fermi": "thomas_fermi",
+        "Lane-Emden": "lane_emden",
+        "Painleve-I": "painleve",
+        "Ginzburg-Landau": "ginzburg_landau"
+    }
+    def get_sota_formula(pde, d, method):
+        prefix = "pysr" if method == "PySR" else "sindy"
+        # Now logs are named like pysr_Airy_1D.log
+        log_path = os.path.join(ROOT_DIR, "sota", "results", f"{prefix}_{pde}_{d}D.log")
+        if not os.path.exists(log_path): return "---"
+        
+        with open(log_path, "r") as f:
+            lines = f.readlines()
+            
+        for i, line in enumerate(lines):
+            # PySR outputs "Best Discovered Equation by PySR for Airy:" then the equation
+            if "Best Discovered Equation" in line and i+1 < len(lines):
+                eq = lines[i+1].strip()
+                if "---" in eq: continue
+                try:
+                    import sympy as sp
+                    expr = sp.sympify(eq)
+                    expr = expr.xreplace({n: round(n, 3) for n in expr.atoms(sp.Number)})
+                    latex_str = sp.latex(expr)
+                    return f"${latex_str}$"
+                except Exception:
+                    eq = eq.replace("_", r"\_").replace("%", r"\%").replace("^", r"\textasciicircum{}")
+                    if len(eq) > 100: eq = eq[:97] + "..."
+                    return f"\\texttt{{{eq}}}"
+            # PySINDy parsing block removed
+        return "---"
     
     for pde in pde_list:
         for d in dims:
@@ -72,8 +104,10 @@ def main():
             p_pi = get_formula(pde, d, "PI-NSGA-II")
             ex_eq = exacts.get((pde, d), "N/A")
             
-            lines.append(rf"    \multirow{{2}}{{*}}{{{pde} ({d}D)}}")
+            p_pysr = get_sota_formula(pde, d, "PySR")
+            lines.append(rf"    \multirow{{3}}{{*}}{{{pde} ({d}D)}}")
             lines.append(rf"    & PI-NSGA-II & ${p_pi}$ \\")
+            lines.append(rf"    & PySR & {p_pysr} \\")
             lines.append(rf"    & \textbf{{Exact}} & $\mathbf{{{ex_eq}}}$ \\")
             lines.append(r"    \midrule")
             

@@ -856,3 +856,45 @@ bool BinaryNode::has_invalid_polynomial_degree() const {
 bool SeriesNode::has_invalid_polynomial_degree() const {
     return child && child->has_invalid_polynomial_degree();
 }
+
+bool UnaryNode::is_strictly_affine() const {
+    return false;
+}
+
+bool BinaryNode::is_strictly_affine() const {
+    if (type == NodeType::ADD || type == NodeType::SUB) {
+        return left && left->is_strictly_affine() && right && right->is_strictly_affine();
+    }
+    if (type == NodeType::MUL) {
+        bool l_const = left && !left->contains_variables();
+        bool r_const = right && !right->contains_variables();
+        if (l_const && r_const) return true;
+        if (l_const && right) return right->is_strictly_affine();
+        if (r_const && left) return left->is_strictly_affine();
+        return false;
+    }
+    if (type == NodeType::DIV) {
+        if (right && !right->contains_variables() && left) return left->is_strictly_affine();
+        return false;
+    }
+    return false;
+}
+
+bool SeriesNode::is_strictly_affine() const {
+    return false;
+}
+
+bool UnaryNode::has_non_affine_trig_arg() const {
+    if ((type == NodeType::SIN || type == NodeType::COS) && child) {
+        if (!child->is_strictly_affine()) return true;
+    }
+    return child && child->has_non_affine_trig_arg();
+}
+
+bool BinaryNode::has_non_affine_trig_arg() const {
+    return (left && left->has_non_affine_trig_arg()) || (right && right->has_non_affine_trig_arg());
+}
+
+bool SeriesNode::has_non_affine_trig_arg() const {
+    return child && child->has_non_affine_trig_arg();
+}
