@@ -55,7 +55,7 @@ enum class NodeType {
     ADD, SUB, MUL, DIV, POW,
     SIN, COS, SINH, COSH, EXP, SQR, LOG, TANH,
     LEGENDRE, HERMITE, CHEBYSHEV, LAGUERRE,
-    BESSEL_J, GAMMA, GAUSSIAN,
+    GAUSSIAN,
     VAR_X, VAR_Y, VAR_T, VAR_Z, VAR_N,
     ERC, CONST_I, CONST_PI, CONST_E,
     CONST_G, CONST_C, CONST_HBAR, CONST_KB, CONST_EPS0,
@@ -94,9 +94,10 @@ struct Individual {
 // ─── Estadísticas de convergencia por generación ─────────────────────────────
 struct ConvergenceStats {
     int    gen;
-    double best_mse_domain;
-    double best_mse_boundary;
-    double best_total_mse;
+    double best_mse_domain;   // Mejor MSE de dominio del batch de entrenamiento de esta generacion (ruidoso: mini-batch cambia cada gen)
+    double best_mse_boundary; // Idem, frontera
+    double best_total_mse;    // best_mse_domain + best_mse_boundary (mismo batch, mismo ruido)
+    double best_val_mse;      // MSE del campeon del Hall of Fame contra la solucion exacta en grilla FIJA de validacion (senal confiable de progreso real)
 };
 
 // ─── Parámetros globales ──────────────────────────────────────────────────────
@@ -119,7 +120,7 @@ namespace Config {
     extern double RAR_ADAPTIVE_RATIO;
     extern int    RAR_ELITE_COUNT;   
     extern double RAR_RANDOM_RATIO;  
-    extern bool   GENERAL_MODE;      
+    extern bool   GENERAL_MODE;
 
-    extern int    CORES;             
+    extern int    CORES;
     }

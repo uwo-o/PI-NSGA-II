@@ -1,5 +1,5 @@
 // =============================================================================
-// main.cpp  —  Orquestador: PI-NSGA-II (Solo nuestro Algoritmo)
+// main.cpp  —  Orquestador: PISR-NSGA-II (Solo nuestro Algoritmo)
 //   Modos:
 //     ./build/pi_nsga2              → 1 corrida (comportamiento estándar)
 //     ./build/pi_nsga2 --runs N     → N corridas independientes (análisis estadístico)
@@ -52,66 +52,77 @@ void save_convergence_csv(const std::vector<ConvergenceStats>& history,
                            const std::string& path)
 {
     std::ofstream f(path);
-    f << "gen,best_mse_domain,best_mse_boundary,best_total_mse\n";
+    f << "gen,best_mse_domain,best_mse_boundary,best_total_mse,best_val_mse\n";
     for (auto& s : history) {
         f << s.gen << "," << s.best_mse_domain << ","
-          << s.best_mse_boundary << "," << s.best_total_mse << "\n";
+          << s.best_mse_boundary << "," << s.best_total_mse << ","
+          << s.best_val_mse << "\n";
     }
 }
 
 // ─── Guardar Mejor Expresión en LaTeX ────────────────────────────────────────
+// Recibe directamente al campeon del Hall of Fame (ya validado contra la
+// grilla fija dentro de PISolver) en vez de re-escanear la poblacion final
+// por mse de entrenamiento — ese escaneo podia elegir un individuo que
+// simplemente sobreajustaba el mini-batch de la ultima generacion.
 template<typename Ind>
-void save_best_expression(const std::vector<Ind>& pop, const PDEProblem& prob, const std::string& path) {
-    const Ind* best = nullptr;
-    double min_err = 1e18;
-
-    // Prioridad: Mejor factible en Rank 1 que sea FÍSICAMENTE COMPLETO
-    for (auto& ind : pop) {
-        if (ind.rank == 1 && ind.is_feasible && ind.tree && ind.is_physically_complete(prob)) {
-            double err = ind.mse_domain + ind.mse_boundary;
-            if (err < min_err) { min_err = err; best = &ind; }
-        }
-    }
-
-    if (best) {
-        std::ofstream f(path);
-        f << "$$ \\hat{u}(x,y) = ";
-        auto final_tree = best->tree->simplify(); // Limpieza simbólica
-        final_tree->round_constants(0.05);        // Redondeo inteligente (1.01 -> 1)
-        final_tree->print_formal(f, 0);           // Impresión formal sin paréntesis redundantes
-        f << " $$" << std::endl;
-    }
+void save_best_expression(const Ind& champion, const std::string& path, int dim = 2) {
+    if (!champion.tree) return;
+    std::ofstream f(path);
+    f << (dim == 1 ? "$$ \\hat{u}(x) = " : "$$ \\hat{u}(x,y) = ");
+    auto final_tree = champion.tree->simplify(); // Limpieza simbólica
+    final_tree->round_constants(0.05);           // Redondeo inteligente (1.01 -> 1)
+    final_tree->print_formal(f, 0);              // Impresión formal sin paréntesis redundantes
+    f << " $$" << std::endl;
 }
 
 // ─── Guardar Rejilla de Evaluación (para plots 3D/1D) ─────────────────────────
 template<typename Ind>
-void save_best_grid(const std::vector<Ind>& pop, const PDEProblem& prob, const std::string& path) {
-    const Ind* best = nullptr;
-    double min_err = 1e18;
-
-    for (auto& ind : pop) {
-        if (ind.rank == 1 && ind.is_feasible && ind.tree && ind.is_physically_complete(prob)) {
-            double err = ind.mse_domain + ind.mse_boundary;
-            if (err < min_err) { min_err = err; best = &ind; }
+void save_best_grid(const Ind& champion, const PDEProblem& prob, const std::string& path) {
+    if (!champion.tree) return;
+    std::ofstream f(path);
+    if (prob.dim == 1) {
+        // El árbol representa N(x) dentro del ansatz U(x) = L(x) + B(x)*N(x)
+        // (mismo que usa PIIndividual::evaluate durante el entrenamiento) — hay
+        // que deshacerlo acá también, si no el grid grafica la corrección cruda
+        // en vez de la solución real.
+        double u0 = prob.bc(0.0, 0.0, 0.0).real();
+        double u1 = prob.bc(1.0, 0.0, 0.0).real();
+        f << "x,u_exact,u_approx\n";
+        for (int i = 0; i <= 100; ++i) {
+            double x = (double)i / 100.0;
+            double N = std::real(champion.tree->eval(x, 0));
+            double L = u0 + x * (u1 - u0);
+            double B = x * (x - 1.0);
+            double u_approx = L + B * N;
+            f << x << "," << std::real(prob.numerical_exact(x, 0, 0)) << "," << u_approx << "\n";
         }
-    }
-
-    if (best) {
-        std::ofstream f(path);
-        if (prob.dim == 1) {
-            f << "x,u_exact,u_approx\n";
-            for (int i = 0; i <= 100; ++i) {
-                double x = (double)i / 100.0;
-                f << x << "," << std::real(prob.numerical_exact(x, 0, 0)) << "," << std::real(best->tree->eval(x, 0)) << "\n";
-            }
-        } else {
-            f << "x,y,u_exact,u_approx\n";
-            for (int i = 0; i <= 30; ++i) {
-                for (int j = 0; j <= 30; ++j) {
-                    double x = (double)i / 30.0;
-                    double y = (double)j / 30.0;
-                    f << x << "," << y << "," << std::real(prob.numerical_exact(x, y, 0)) << "," << std::real(best->tree->eval(x, y)) << "\n";
+    } else {
+        // Igual que en 1D: si el ansatz de frontera exacta aplica en 2D (Dirichlet
+        // simple en las 4 aristas — no Navier-Stokes, que usa condiciones sobre
+        // función de corriente/velocidad), el árbol representa N(x,y) dentro de
+        // U(x,y) = L(x,y) + B(x,y)*N(x,y) (interpolación transfinita — mismas
+        // fórmulas que PIIndividual::evaluate/apply_boundary_ansatz en pi_solver.cpp).
+        bool use_ansatz_2d = (prob.type != PDE::NAVIER_STOKES && prob.type != PDE::NAVIER_STOKES_UNSTEADY);
+        f << "x,y,u_exact,u_approx\n";
+        for (int i = 0; i <= 30; ++i) {
+            for (int j = 0; j <= 30; ++j) {
+                double x = (double)i / 30.0;
+                double y = (double)j / 30.0;
+                double N = std::real(champion.tree->eval(x, y));
+                double u_approx = N;
+                if (use_ansatz_2d) {
+                    double g0 = prob.bc(0.0, y, 0.0).real(), g1 = prob.bc(1.0, y, 0.0).real();
+                    double h0 = prob.bc(x, 0.0, 0.0).real(), h1 = prob.bc(x, 1.0, 0.0).real();
+                    double c00 = prob.bc(0.0, 0.0, 0.0).real(), c10 = prob.bc(1.0, 0.0, 0.0).real();
+                    double c01 = prob.bc(0.0, 1.0, 0.0).real(), c11 = prob.bc(1.0, 1.0, 0.0).real();
+                    double L = (1.0 - x) * g0 + x * g1 + (1.0 - y) * h0 + y * h1
+                             - (1.0 - x) * (1.0 - y) * c00 - x * (1.0 - y) * c10
+                             - (1.0 - x) * y * c01 - x * y * c11;
+                    double B = x * (1.0 - x) * y * (1.0 - y);
+                    u_approx = L + B * N;
                 }
+                f << x << "," << y << "," << std::real(prob.numerical_exact(x, y, 0)) << "," << u_approx << "\n";
             }
         }
     }
@@ -127,8 +138,14 @@ struct Stats {
     double mean_bnd    = 0.0;
     double runtime_s   = 0.0;
     double hypervolume = 0.0;
+    double min_bic     = 1e18;
     double infeasible_ratio = 0.0;
     double bloat_factor = 0.0;
+    // Error de SOLUCION del campeon (vs. verdad exacta/numerica, en la grilla
+    // fija de validacion) — distinto de best_domain (residuo de la EDP, no
+    // supervisado). -1 si no hay campeon. Esta es la metrica comparable con
+    // el MSE que reportan PySR/PySINDy (que sí entrenan contra la solucion).
+    double solution_mse = -1.0;
 };
 
 // ─── Hipervolumen 3D: mse_domain × mse_boundary × tree_size (normalizado) ─────
@@ -239,18 +256,24 @@ double compute_hypervolume(const std::vector<Ind>& pop,
     return hv3 / (ref_dom * ref_bnd * ref_size);
 }
 
+// `champion`, si se entrega, es el individuo del Hall of Fame (ya validado en
+// grilla fija) del que se toman best_domain/best_bnd/min_bic — el resto de las
+// estadisticas (front_size, medias, infeasible_ratio, bloat_factor, hipervolumen)
+// siguen viniendo del escaneo de toda la poblacion final, que es diversidad
+// real y no necesita el campeon validado.
 template<typename Ind>
 Stats compute_stats(const std::vector<Ind>& pop,
                     const PDEProblem& prob,
                     const std::string& method,
                     const std::string& pde,
-                    double rt)
+                    double rt,
+                    const Ind* champion = nullptr,
+                    double champion_solution_mse = -1.0)
 {
     Stats s;
     s.method = method; s.pde = pde; s.runtime_s = rt;
     int infeasible = 0;
     int total_nodes = 0;
-    double best_total = 1e18;
     for (auto& ind : pop) {
         if (!ind.is_feasible) {
             infeasible++;
@@ -260,15 +283,17 @@ Stats compute_stats(const std::vector<Ind>& pop,
         // Análisis del Frente de Pareto (Individuos de Rank 1 y Físicamente Completos)
         if (ind.rank == 1 && ind.is_feasible && ind.is_physically_complete(prob)) {
             s.front_size++;
-            double current_total = ind.mse_domain + ind.mse_boundary;
-            if (current_total < best_total) {
-                best_total = current_total;
-                s.best_domain = ind.mse_domain;
-                s.best_bnd = ind.mse_boundary;
-            }
             s.mean_domain += ind.mse_domain;
             s.mean_bnd += ind.mse_boundary;
         }
+    }
+    if (champion && champion->tree) {
+        double n_samples = 400.0; // aprox n_domain + n_boundary
+        double current_total = champion->mse_domain + champion->mse_boundary;
+        s.best_domain = champion->mse_domain;
+        s.best_bnd = champion->mse_boundary;
+        s.min_bic = n_samples * std::log(std::max(current_total, 1e-16)) + champion->tree_size * std::log(n_samples);
+        s.solution_mse = champion_solution_mse;
     }
     if (!pop.empty()) {
         s.infeasible_ratio = 100.0 * infeasible / pop.size();
@@ -287,35 +312,38 @@ void save_summary(const std::vector<Stats>& stats, const std::string& path) {
     std::ofstream f(path);
     f << std::fixed << std::setprecision(10);
     f << "method,pde,pareto_size,best_mse_domain,best_mse_boundary,"
-         "mean_mse_domain,mean_mse_boundary,hypervolume,runtime_s\n";
+         "mean_mse_domain,mean_mse_boundary,best_bic,runtime_s,solution_mse\n";
     for (auto& s : stats) {
         f << s.method << "," << s.pde << "," << s.front_size << ","
           << s.best_domain << "," << s.best_bnd << ","
           << s.mean_domain << "," << s.mean_bnd << ","
-          << s.hypervolume << "," << s.runtime_s << "\n";
+          << s.min_bic << "," << s.runtime_s << "," << s.solution_mse << "\n";
     }
 }
 
-// ─── Tabla en consola (Solo PI-NSGA-II) ──────────────────────────────────────
+// ─── Tabla en consola (Solo PISR-NSGA-II) ──────────────────────────────────────
 void print_table(const std::string& lbl, const Stats& p) {
-    std::cout << "\n+------------------+-------------+-------------+----------+-------------+----------+\n";
-    std::cout << "| " << std::left << std::setw(78) << ("  Ecuacion: " + lbl) << "|\n";
-    std::cout << "+------------------+-------------+-------------+----------+-------------+----------+\n";
-    std::cout << "| Metodo           | MSE Dom.    | MSE Bnd.    | Pareto   | Hipervolumen| Tiempo   |\n";
-    std::cout << "+------------------+-------------+-------------+----------+-------------+----------+\n";
+    std::cout << "\n+------------------+-------------+-------------+----------+-------------+-------------+----------+\n";
+    std::cout << "| " << std::left << std::setw(92) << ("  Ecuacion: " + lbl) << "|\n";
+    std::cout << "+------------------+-------------+-------------+----------+-------------+-------------+----------+\n";
+    std::cout << "| Metodo           | MSE Dom.    | MSE Bnd.    | Pareto   | Best BIC    | MSE Solucion| Tiempo   |\n";
+    std::cout << "+------------------+-------------+-------------+----------+-------------+-------------+----------+\n";
     std::cout << std::scientific << std::setprecision(4);
-    std::cout << "| PI-NSGA-II       | " << std::setw(11) << p.best_domain
+    std::cout << "| PISR-NSGA-II     | " << std::setw(11) << p.best_domain
               << " | " << std::setw(11) << p.best_bnd
               << std::defaultfloat << std::setprecision(4)
               << " | " << std::setw(8)  << p.front_size
-              << " | " << std::setw(11) << std::fixed << p.hypervolume 
+              << std::scientific << std::setprecision(4)
+              << " | " << std::setw(11) << p.min_bic
+              << " | " << std::setw(11) << p.solution_mse
+              << std::defaultfloat << std::setprecision(4)
               << " | " << std::setw(7)  << p.runtime_s << "s |\n";
-    std::cout << "+------------------+-------------+-------------+----------+-------------+----------+\n";
-    std::cout << "| Health Analytics | Infeasible: " << std::setw(5) << std::fixed << std::setprecision(1) << p.infeasible_ratio << "% | Bloat Factor (Avg nodes): " << std::setw(5) << p.bloat_factor << "         |\n";
-    std::cout << "+------------------+-------------+-------------+----------+-------------+----------+\n";
+    std::cout << "+------------------+-------------+-------------+----------+-------------+-------------+----------+\n";
+    std::cout << "| Health Analytics | Infeasible: " << std::setw(5) << std::fixed << std::setprecision(1) << p.infeasible_ratio << "% | Bloat Factor (Avg nodes): " << std::setw(5) << p.bloat_factor << "                       |\n";
+    std::cout << "+------------------+-------------+-------------+----------+-------------+-------------+----------+\n";
 }
 
-// ─── Una corrida completa (Solo PI-NSGA-II) ──────────────────────────────────
+// ─── Una corrida completa (Solo PISR-NSGA-II) ──────────────────────────────────
 std::vector<Stats> run_once(int run_id, const std::string& out_dir, bool verbose, bool is_test, const std::string& only_pde, bool replicable) {
     unsigned seed_base = replicable ? (1000u * (unsigned)(run_id + 1)) : std::random_device{}();
     std::vector<PDEProblem> all_problems;
@@ -359,7 +387,7 @@ std::vector<Stats> run_once(int run_id, const std::string& out_dir, bool verbose
     for (auto& prob : problems) {
         std::string lbl = prob.name() + (prob.dim == 1 ? "_1D" : "_2D");
         
-        if (verbose) std::cout << "\n[Run] PI-NSGA-II en " << lbl << "\n";
+        if (verbose) std::cout << "\n[Run] PISR-NSGA-II en " << lbl << "\n";
         if (prob.is_numerical) {
             prob.numerical_truth = NumericalSolver::solve(prob, 50);
         }
@@ -417,36 +445,39 @@ std::vector<Stats> run_once(int run_id, const std::string& out_dir, bool verbose
             auto pi_pop = pi.run(pop, gen);
             
             // ─── Post-Evolution Polishing ───
-            // Seleccionamos al mejor no-trivial de la población final y le aplicamos el pulidor
-            PIIndividual* best_ind = nullptr;
-            double min_total_err = 1e18;
-            for (auto& ind : pi_pop) {
-                if (ind.rank == 1 && ind.tree && ind.is_feasible) {
-                    // Filtro de Variables para el Campeón
-                    bool vars_ok = true;
-                    if (prob.dim >= 2) {
-                        if (!ind.tree->uses_variable(NodeType::VAR_X) || !ind.tree->uses_variable(NodeType::VAR_Y)) vars_ok = false;
-                    }
-                    if (prob.type == PDE::NAVIER_STOKES_UNSTEADY) {
-                        if (!ind.tree->uses_variable(NodeType::VAR_T)) vars_ok = false;
-                    }
-                    
-                    if (vars_ok) {
-                        double err = ind.mse_domain + ind.mse_boundary;
-                        if (err < min_total_err) { min_total_err = err; best_ind = &ind; }
-                    }
-                }
+            // Pulimos al campeón del Hall of Fame (ya validado en grilla fija dentro
+            // de PISolver, ver update_hall_of_fame) en vez de re-elegir "el mejor" acá
+            // escaneando mse de entrenamiento de la población final — ese segundo
+            // escaneo podía terminar eligiendo (y puliendo, y exportando) un individuo
+            // que sólo sobreajustaba el mini-batch de la última generación, no la
+            // solución real. is_physically_complete (chequeado antes de admitir al
+            // campeón) ya cubre el filtro de variables que se hacía acá.
+            PIIndividual champion;
+            bool has_champion = pi.has_champion();
+            double champion_sol_mse = -1.0;
+            if (has_champion) {
+                const PIIndividual& hof = pi.champion();
+                champion.mse_domain = hof.mse_domain; champion.mse_boundary = hof.mse_boundary;
+                champion.rank = hof.rank; champion.crowding = hof.crowding;
+                champion.tree_size = hof.tree_size; champion.root_type = hof.root_type;
+                champion.is_feasible = hof.is_feasible; champion.constraint_violation = hof.constraint_violation;
+                if (hof.tree) champion.tree = hof.tree->clone();
+                pi.polish_constants(champion);
+                // Error de solucion real (vs. verdad), no el residuo de la EDP —
+                // ver comentario en Stats::solution_mse.
+                champion_sol_mse = pi.solution_mse(champion);
             }
-            if (best_ind) pi.polish_constants(*best_ind);
 
             double pi_rt = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
-            
-            save_pareto_csv(pi_pop, out_dir + "/" + lbl + "_pi_gn_pareto.csv", "PI-NSGA-II", prob.name(), prob.dim);
+
+            save_pareto_csv(pi_pop, out_dir + "/" + lbl + "_pi_gn_pareto.csv", "PISR-NSGA-II", prob.name(), prob.dim);
             save_convergence_csv(pi.history(), out_dir + "/" + lbl + "_pi_gn_convergence.csv");
-            save_best_expression(pi_pop, prob, out_dir + "/expr_" + lbl + "_PI-NSGA-II.tex");
-            save_best_grid(pi_pop, prob, out_dir + "/grid_" + lbl + "_PI-NSGA-II.csv");
-            
-            Stats ps = compute_stats(pi_pop, prob, "PI-NSGA-II", lbl, pi_rt);
+            if (has_champion) {
+                save_best_expression(champion, out_dir + "/expr_" + lbl + "_PISR-EMOAD.tex", prob.dim);
+                save_best_grid(champion, prob, out_dir + "/grid_" + lbl + "_PISR-EMOAD.csv");
+            }
+
+            Stats ps = compute_stats(pi_pop, prob, "PISR-NSGA-II", lbl, pi_rt, has_champion ? &champion : nullptr, champion_sol_mse);
             if (verbose) print_table(lbl, ps);
             all_stats.push_back(ps);
         }
@@ -462,6 +493,7 @@ std::vector<Stats> run_once(int run_id, const std::string& out_dir, bool verbose
             ns.mean_bnd = num_mse_bnd;
             ns.runtime_s = num_rt;
             ns.hypervolume = 0.0;
+            ns.solution_mse = num_mse_dom; // ya es error contra prob.exact(), misma metrica
             all_stats.push_back(ns);
         }
     }
@@ -475,13 +507,13 @@ void print_usage(char* prog) {
               << "  --test            Fast test mode (small pop/gen)\n"
               << "  --replicable      Use deterministic seeds for reproducibility\n"
               << "  --only NAME       Run only a specific PDE (e.g., Airy_1D)\n"
-              << "  --pop N           Population size (default: 300)\n"
-              << "  --gen N           Max generations (default: 300)\n"
-              << "  --domain N        Number of domain points (default: 2000)\n"
-              << "  --boundary N      Number of boundary points (default: 500)\n"
-              << "  --depth N         Max tree depth (default: 8)\n"
-              << "  --sigma F         ERC mutation sigma (default: 0.20)\n"
-              << "  --stop F          Convergence threshold (default: 1e-7)\n"
+              << "  --pop N           Population size (default: " << Config::POP_SIZE << ")\n"
+              << "  --gen N           Max generations (default: " << Config::MAX_GEN << ")\n"
+              << "  --domain N        Number of domain points (default: " << Config::N_DOMAIN << ")\n"
+              << "  --boundary N      Number of boundary points (default: " << Config::N_BOUNDARY << ")\n"
+              << "  --depth N         Max tree depth (default: " << Config::MAX_TREE_DEPTH << ")\n"
+              << "  --sigma F         ERC mutation sigma (default: " << Config::ERC_SIGMA << ")\n"
+              << "  --stop F          Convergence threshold (default: " << Config::STOP_THRESHOLD << ")\n"
               << "  --cores N         Number of CPU threads (default: 1)\n"
               << "  --help            Show this help\n";
 }
@@ -527,7 +559,7 @@ int main(int argc, char* argv[]) {
     }
 
     std::cout << "=============================================================\n";
-    std::cout << "  PI-NSGA-II --- Orquestador de Ecuaciones PDE\n";
+    std::cout << "  PISR-NSGA-II --- Orquestador de Ecuaciones PDE\n";
     std::cout << "  Pop=" << Config::POP_SIZE << "  Gen=" << Config::MAX_GEN << "  Runs=" << n_runs << "\n";
     if (replicable) std::cout << "  [!] Modo --replicable ACTIVADO (Semillas Deterministas)\n";
     std::cout << "=============================================================\n\n";
@@ -558,11 +590,11 @@ int main(int argc, char* argv[]) {
     }
 
     std::ofstream f_all("results/all_runs_summary.csv");
-    f_all << "run,method,pde,pareto_size,best_mse_domain,best_mse_boundary,mean_mse_domain,mean_mse_boundary,hypervolume,runtime_s\n";
+    f_all << "run,method,pde,pareto_size,best_mse_domain,best_mse_boundary,mean_mse_domain,mean_mse_boundary,hypervolume,runtime_s,solution_mse\n";
     for (int r = 0; r < n_runs; ++r) {
         for (auto& s : all_runs[r]) {
             f_all << r << "," << s.method << "," << s.pde << "," << s.front_size << "," << s.best_domain << ","
-                  << s.best_bnd << "," << s.mean_domain << "," << s.mean_bnd << "," << s.hypervolume << "," << s.runtime_s << "\n";
+                  << s.best_bnd << "," << s.mean_domain << "," << s.mean_bnd << "," << s.hypervolume << "," << s.runtime_s << "," << s.solution_mse << "\n";
         }
     }
 

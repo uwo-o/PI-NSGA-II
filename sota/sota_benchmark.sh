@@ -8,6 +8,15 @@ cd "$(dirname "$0")"
 # echo "Installing dependencies..."
 # pip install -r requirements.txt -q
 
+RUNS=1
+while [[ "$#" -gt 0 ]]; do
+    case $1 in
+        --runs) RUNS="$2"; shift ;;
+        *) shift ;;
+    esac
+    shift
+done
+
 PROBLEMS=(
     "Airy_1D"
     "Airy_2D"
@@ -28,30 +37,28 @@ echo "    STARTING SOTA BENCHMARK (PySR & PySINDy)              "
 echo "=========================================================="
 
 for prob in "${PROBLEMS[@]}"; do
-    echo " "
-    echo "----------------------------------------------------------"
-    echo ">>> Benchmarking Problem: $prob"
-    echo "----------------------------------------------------------"
-    
-    DATA_FILE="../results/grid_${prob}_PI-NSGA-II.csv"
-    
-    # 1. Generate High-Fidelity Data (Skipped because we use PI-NSGA-II data)
-    echo "[1/3] Data already available from PI-NSGA-II."
+    for run_id in $(seq 1 $RUNS); do
+        echo " "
+        echo "----------------------------------------------------------"
+        echo ">>> Benchmarking Problem: $prob (Run $run_id/$RUNS)"
+        echo "----------------------------------------------------------"
+        
+        DATA_FILE="../results/run_${run_id}/grid_${prob}_PISR-EMOAD.csv"
+        
+        # 1. Generate High-Fidelity Data (Skipped because we use PISR-EMOAD data)
+        echo "[1/3] Data already available from PISR-EMOAD."
 
-    # 2. Run PySINDy
-    echo "[2/3] Running PySINDy discovery..."
-    # The script expects base problem name without _1D suffix for its internal naming,
-    # but we will just pass the clean problem name and let it save properly.
-    # Wait, the script appends suffix = f"_{dim}D" so if we pass Airy_1D, it becomes Airy_1D_1D.
-    # Let's clean the name for SOTA scripts.
-    clean_prob=$(echo "$prob" | sed -E 's/_(1D|2D)//')
-    
-    echo "      Saved SINDy output to results/sindy_${prob}.log"
-    
-    # 3. Run PySR
-    echo "[3/3] Running PySR discovery (This might take a while)..."
-    uv run python run_pysr.py --problem "$clean_prob" --dataset "$DATA_FILE" > "results/pysr_${prob}.log" 2>&1
-    echo "      Saved PySR output to results/pysr_${prob}.log"
+        # 2. Run PySINDy
+        echo "[2/3] Running PySINDy discovery..."
+        clean_prob=$(echo "$prob" | sed -E 's/_(1D|2D)//')
+        
+        echo "      Saved SINDy output to results/run_${run_id}/sindy_${prob}.log"
+        
+        # 3. Run PySR
+        echo "[3/3] Running PySR discovery (This might take a while)..."
+        uv run python run_pysr.py --problem "$clean_prob" --dataset "$DATA_FILE" --run_id "$run_id" > "results/pysr_${prob}_run${run_id}.log" 2>&1
+        echo "      Saved PySR output to results/pysr_${prob}_run${run_id}.log"
+    done
 done
 
 echo " "

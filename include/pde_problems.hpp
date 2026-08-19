@@ -11,6 +11,35 @@
 
 class Node;
 
+// ─── Análisis a priori de la física (Physics-Guided Search) ───────────────
+// Declarado antes de PDEProblem para que este pueda cachear su propio resultado
+// (ver campo `priors` más abajo) y así llegar hasta PIIndividual::evaluate sin
+// tener que agregar un parámetro nuevo a esa función en todos sus call sites.
+struct PDEPriors {
+    bool autonomous_x = false;
+    bool autonomous_y = false;
+    bool autonomous_t = false;    // el residuo no depende explícitamente de t
+    bool pole_at_origin = false;
+    bool even_parity_x = false;
+
+    // Simetría especular x <-> 1-x (resp. y <-> 1-y), la relevante para el
+    // dominio real [0,1] — a diferencia de even_parity_x (que compara contra
+    // x=-1, fuera del dominio). Sólo se marca true si TANTO el operador COMO
+    // la condición de frontera son invariantes bajo la reflexión: si sólo el
+    // operador lo es pero la frontera no, la solución real no tiene por qué
+    // ser simétrica, y forzarla sería una restricción falsa (peor que no
+    // tener el prior). Con ambos invariantes, la solución sí está obligada a
+    // serlo (unicidad: aplicar la reflexión a una solución de un problema con
+    // operador+frontera simétricos da otra solución del mismo problema).
+    bool mirror_symmetric_x = false;
+    bool mirror_symmetric_y = false;
+
+    // Priors de Nivel Superior
+    bool scale_invariant = false; // Invarianza de escala (Auto-similaridad)
+    int  max_deriv_order = 0;     // ADN Diferencial (Orden máximo de derivación)
+    bool is_conservative = false; // Leyes de conservación (Divergencia nula)
+};
+
 // ─── Problema PDE ─────────────────────────────────────────────────────────────
 struct PDEProblem {
     PDE    type;
@@ -19,6 +48,8 @@ struct PDEProblem {
     bool   is_numerical = false; // Indica si requiere validación vía NumericalSolver
     bool   is_unsteady = false;  // Indica si depende del tiempo
     std::vector<Complex> numerical_truth; // Malla de referencia pre-calculada
+    PDEPriors priors; // Cacheado por PISolver al construirse (probe_priors), usado
+                       // por PIIndividual::evaluate para exigir simetrías detectadas.
 
     // Dimensiones para coherencia física
     Dimension dim_u = Units::None;
@@ -54,19 +85,6 @@ struct PDEProblem {
 
     // Nombre legible
     std::string name() const;
-};
-
-// ─── Análisis a priori de la física (Physics-Guided Search) ───────────────
-struct PDEPriors {
-    bool autonomous_x = false;   
-    bool autonomous_y = false;   
-    bool pole_at_origin = false; 
-    bool even_parity_x = false;  
-    
-    // Priors de Nivel Superior
-    bool scale_invariant = false; // Invarianza de escala (Auto-similaridad)
-    int  max_deriv_order = 0;     // ADN Diferencial (Orden máximo de derivación)
-    bool is_conservative = false; // Leyes de conservación (Divergencia nula)
 };
 
 PDEPriors probe_priors(const PDEProblem& prob);

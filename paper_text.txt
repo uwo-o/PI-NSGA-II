@@ -1,4 +1,4 @@
-PISR-NSGA-II: A Physics-Informed Multi-Objective Approach for
+PISR-EMOA/D: A Physics-Informed Multi-Objective Approach for
 Symbolic Solutions to Differential Equations
 Campos H.∗, Montero E.∗∗
 Universidad Tecnica Federico Santa Maria, Avenida España 1680, Valparaíso, 2340000, Valparaíso, Chile
@@ -9,12 +9,12 @@ equations, they fail to yield closed-form mathematical expressions. Recent physi
 learning approaches, such as PINNs, attempt to address this but frequently suffer from optimization
 instabilities due to weighted penalty functions and a lack of mathematical interpretability. This study
 introduces the Physics-Informed Symbolic Regression Non-dominated Sorting Genetic Algorithm II
-(PISR-NSGA-II)., a hybrid Physics-Informed Multi-Objective Symbolic Regression framework for
+(PISR-EMOA/D)., a hybrid Physics-Informed Multi-Objective Symbolic Regression framework for
 discovering exact analytical solutions to partial differential equations (PDEs). Unlike traditional
-methods, PISR-NSGA-II formulates the search as a strictly tri-objective Pareto optimization problem, independently minimizing domain residuals, boundary condition errors, and expression complexity, thereby eliminating the need for manual penalty weights. Utilizing an object-oriented tree
+methods, PISR-EMOA/D formulates the search as a strictly tri-objective Pareto optimization problem, independently minimizing domain residuals, boundary condition errors, and expression complexity, thereby eliminating the need for manual penalty weights. Utilizing an object-oriented tree
 representation, the algorithm enables exact Automated Symbolic Differentiation (AD), bypassing the
 computational overhead of finite differences. Evaluated across a comprehensive benchmark suite of
-13 linear and non-linear PDEs, the framework exhibited a bifurcated performance profile. For systems with exact closed-form solutions, PISR-NSGA-II achieved machine-precision accuracy (10−30 to
+13 linear and non-linear PDEs, the framework exhibited a bifurcated performance profile. For systems with exact closed-form solutions, PISR-EMOA/D achieved machine-precision accuracy (10−30 to
 10−33 ) and successfully reconstructed complex formulations, including the 2D Navier-Stokes stream
 function. However, for PDEs lacking simple analytical forms that rely on numerical approximations,
 the algorithm struggles to compress complex numerical fields into parsimonious symbolic trees, resulting in higher residual errors (10−1 to 10−3 ). Despite this limitation in numerical field approximation,
@@ -43,8 +43,8 @@ errors into a single scalar fitness function using a weighted penalty method Coh
 Raissi et al. (2019a). Choosing the optimal penalty weight is notoriously difficult, heavily biases the
 population-based search, and requires extensive manual hyperparameter tuning, which frequently
 compromises the stability and accuracy of the convergence.
-To overcome these limitations, this study introduces the Physics-Informed Non-dominated Sorting Genetic Algorithm II (PISR-NSGA-II) for the exact symbolic resolution of partial differential
-equations. Unlike traditional physics-informed models, PISR-NSGA-II evaluates domain residuals
+To overcome these limitations, this study introduces the Physics-Informed Non-dominated Sorting Genetic Algorithm II (PISR-EMOA/D) for the exact symbolic resolution of partial differential
+equations. Unlike traditional physics-informed models, PISR-EMOA/D evaluates domain residuals
 and boundary requirements as strictly independent objectives within a bi-objective Pareto framework, completely eliminating manual penalty weights. Furthermore, by utilizing an object-oriented,
 tree-based chromosome representation embedded with Ephemeral Random Constants (ERC) Koza
 (1992), our framework enables native, exact Automated Symbolic Differentiation (AD) Baydin et al.
@@ -52,7 +52,7 @@ tree-based chromosome representation embedded with Ephemeral Random Constants (E
 coefficients to discover robust, closed-form analytical solutions with mathematical precision.
 The remainder of this article is organized as follows: Section 2 reviews related work in evolutionary computation and physics-informed meta-heuristics. Section 3 formalizes the mathematical
 model and introduces the canonical PDEs utilized as computational benchmarks. Section 4 details
-the proposed PISR-NSGA-II framework, focusing on its tree-based representation and automated
+the proposed PISR-EMOA/D framework, focusing on its tree-based representation and automated
 symbolic differentiation. Section 5 outlines the experimental methodology and statistical validation
 procedures, while Section 6 presents the numerical results and comparative analyses.
 2. Related Work
@@ -126,7 +126,7 @@ external automatic differentiation libraries (such as PyTorch) to compute the ne
 As the authors noted, this approach introduces a severe computational penalty, rendering the algorithmic evaluation significantly slower than conventional function evaluations. Furthermore, their
 methodology aggregates domain residuals and boundary conditions into a single scalar fitness metric,
 inherently reintroducing the optimization vulnerabilities associated with penalty weight tuning.
-To directly address these critical limitations, the proposed PISR-NSGA-II framework completely
+To directly address these critical limitations, the proposed PISR-EMOA/D framework completely
 bypasses external deep learning libraries by embedding exact Automated Symbolic Differentiation
 (AD) natively within the object-oriented syntax tree nodes. Coupled with a strictly multi-objective
 Pareto formulation that evaluates domain and boundary residuals independently, this architectural
@@ -166,7 +166,7 @@ dictating the boundary state.
 4
 
 3.1. Canonical Benchmark Suite
-To evaluate the symbolic regression capabilities of the proposed PISR-NSGA-II framework, we
+To evaluate the symbolic regression capabilities of the proposed PISR-EMOA/D framework, we
 establish a comprehensive benchmark suite of 13 differential equations. These equations span a wide
 spectrum of physical domains, dimensions (d ∈ {1, 2}), and mathematical complexities, including
 linear elliptic fields, quantum eigenvalue problems, non-linear reaction-diffusion kinetics, and highorder fluid dynamics.
@@ -517,7 +517,7 @@ P ← Combined parents and offspring
 
 5. Experimental Methodology and Evaluation Metrics
 To rigorously evaluate the quality, physical consistency, and efficiency of the symbolic solutions
-discovered by the proposed PI-NSGA-II framework against the established baselines, we employ five
+discovered by the proposed PISR-EMOA/D framework against the established baselines, we employ five
 primary performance metrics:
 • Domain Residual (MSE LΩ ): Quantifies the mean squared error of the discovered analytical
 expression û with respect to the governing differential operator F evaluated across the interior
@@ -565,7 +565,7 @@ g++ (GCC) 15.2.1
 Language Standard
 ISO C++17
 Analysis Environment Python 3.14.4
-Table 2 details the hyperparameters of the proposed PISR-NSGA-II framework. The population
+Table 2 details the hyperparameters of the proposed PISR-EMOA/D framework. The population
 size and generation limits were calibrated to balance exploration pressure and computation time.
 Table 2: Hyperparameter configurations for the benchmark suite. AD denotes Automatic Differentiation (symbolic),
 and ERC represent evolved numerical constants.
@@ -583,7 +583,7 @@ Derivative method
 Operator set
 Independent runs N
 
-PISR-NSGA-II
+PISR-EMOA/D
 250
 150
 600
@@ -599,14 +599,14 @@ Exact AD
 6.2. Discussion and Comparative Analysis
 An analysis of the benchmark results highlights the performance advantages of the proposed
 framework:
-• Precision and Convergence Depth: As shown in Table 5, PISR-NSGA-II achieves near-zero
+• Precision and Convergence Depth: As shown in Table 5, PISR-EMOA/D achieves near-zero
 machine-precision errors (10−30 to 10−33 ) across all linear and non-linear analytical equations
 (Laplace, Poisson, Helmholtz, Schrödinger, Nonlinear Poisson, Liouville, and Sine-Gordon).
 In contrast, the DeepXDE baseline, despite training for 10, 000 Adam epochs, is fundamentally
 bounded by the optimization dynamics of neural networks, plateauing between 10−8 and 10−12 .
 12
 
-Table 3: PISR-NSGA-II Performance Metrics (Mean ± Std).
+Table 3: PISR-EMOA/D Performance Metrics (Mean ± Std).
 
 PDE
 
@@ -963,18 +963,18 @@ Navier-Stokes
 
 (5.45 ± 0.00) × 10
 
-• Computational Efficiency: PISR-NSGA-II completes its structural search and parameter
+• Computational Efficiency: PISR-EMOA/D completes its structural search and parameter
 optimization in under a minute for most PDEs. For analytical cases, the boundary-conforming
 seeding strategy combined with the local Gauss-Newton optimizer enables immediate convergence at generation 0. Conversely, DeepXDE requires backpropagation-based gradient descent over
 thousands of collocation points on deep neural architectures, resulting in long training runtimes
 (exceeding 1.5 hours per 2D equation on GPU).
-• Exact Symbolic Reconstruction: Table 4 demonstrates that PISR-NSGA-II successfully
-reconstructs the exact target mathematical formulations. For instance, in the 2D steady NavierStokes Kovasznay flow problem, PISR-NSGA-II accurately discovered the stream function profile
+• Exact Symbolic Reconstruction: Table 4 demonstrates that PISR-EMOA/D successfully
+reconstructs the exact target mathematical formulations. For instance, in the 2D steady NavierStokes Kovasznay flow problem, PISR-EMOA/D accurately discovered the stream function profile
 exp(−1.8101x) sin(6.2832y)
 ψ(x, y) = y −
 125.6637
 which matches the analytical solution (where 2πRe ≈ 125.6637 and λ ≈ −1.8101).
-• Boundary Condition Satisfaction: Traditional physics-informed algorithms often compromise boundary integrity to minimize domain residuals. Under the tri-objective Pareto formulation of PISR-NSGA-II, the boundary condition residual (f2 ) is treated as an independent
+• Boundary Condition Satisfaction: Traditional physics-informed algorithms often compromise boundary integrity to minimize domain residuals. Under the tri-objective Pareto formulation of PISR-EMOA/D, the boundary condition residual (f2 ) is treated as an independent
 13
 
 dimension. This separation ensures that candidate solutions are driven to satisfy boundary
@@ -982,12 +982,12 @@ constraints exactly, yielding boundary errors of 10−32 (e.g., in 1D Fisher) an
 boundary leakage issues common in neural network baselines.
 • Numerical Reference Comparison (RK4/FDM): For equations lacking closed-form analytical solutions (Airy, Fisher, Duffing, and Thomas-Fermi), the 1D/2D numerical solutions
 computed via Runge-Kutta 4th order and Finite Difference relaxation serve as the Ground
-Truth (represented as (0.00 ± 0.00) × 100 error in Table 5). Both PISR-NSGA-II and DeepXDE
-solutions were evaluated against these discrete reference grids, with PISR-NSGA-II obtaining
+Truth (represented as (0.00 ± 0.00) × 100 error in Table 5). Both PISR-EMOA/D and DeepXDE
+solutions were evaluated against these discrete reference grids, with PISR-EMOA/D obtaining
 highly accurate symbolic approximations (e.g., 10−3 in 1D Airy) that capture the physical
 properties of the underlying fields.
 6.3. Visualization of Evolutionary Optimization and Solutions
-This section illustrates the optimization dynamics of the hybrid PI-NSGA-II framework along
+This section illustrates the optimization dynamics of the hybrid PISR-EMOA/D framework along
 with the reconstructed 1D and 2D field solutions across the benchmark suite.
 
 Pareto Fronts: Domain vs. Boundary (Color = Complexity)
@@ -1213,7 +1213,7 @@ Laplace 2D
 
 Laplace 2D
 
-PISR-NSGA-II
+PISR-EMOA/D
 
 Total MSE
 
@@ -1226,7 +1226,7 @@ Total MSE
 
 Schrodinger 2D
 
-PISR-NSGA-II
+PISR-EMOA/D
 
 4 × 101
 3 × 101
@@ -1279,7 +1279,7 @@ Sine-Gordon 2D
 
 102
 
-PISR-NSGA-II
+PISR-EMOA/D
 
 Total MSE
 
@@ -1307,11 +1307,11 @@ ThomasFermi 2D
 
 100
 
-PISR-NSGA-II
+PISR-EMOA/D
 2
 4
 
-PISR-NSGA-II
+PISR-EMOA/D
 
 6 × 101
 4 × 101
@@ -1342,7 +1342,7 @@ Complexity (Tree Nodes)
 
 Complexity (Tree Nodes)
 
-PISR-NSGA-II
+PISR-EMOA/D
 
 10 1
 
@@ -1352,7 +1352,7 @@ PISR-NSGA-II
 
 Duffing 2D
 
-PISR-NSGA-II
+PISR-EMOA/D
 
 2
 
@@ -1372,7 +1372,7 @@ Total MSE
 
 1.4 × 100
 
-PISR-NSGA-II
+PISR-EMOA/D
 
 Total MSE
 
@@ -1396,7 +1396,7 @@ x
 
 Error
 
-PISR-NSGA-II
+PISR-EMOA/D
 
 0.0
 
@@ -1520,7 +1520,7 @@ Exact (top view)
 0.0 0.25
 1
 
-PISR-NSGA-II
+PISR-EMOA/D
 
 00
 
@@ -1632,7 +1632,7 @@ x 1 0 y
 
 0
 
-PISR-NSGA-II
+PISR-EMOA/D
 
 1
 2.0 × 10 2
@@ -1657,7 +1657,7 @@ x
 
 0
 
-PISR-NSGA-II
+PISR-EMOA/D
 
 1
 
@@ -1792,7 +1792,7 @@ PINN
 
 2D
 
-PISR-NSGA-II
+PISR-EMOA/D
 
 y
 
@@ -1814,7 +1814,7 @@ Error
 
 y
 
-PISR-NSGA-II
+PISR-EMOA/D
 
 y
 
@@ -1852,7 +1852,7 @@ Exact
 
 Error
 
-PISR-NSGA-II
+PISR-EMOA/D
 
 Exact (top view)
 
@@ -1894,7 +1894,7 @@ y
 
 2D
 
-PISR-NSGA-II
+PISR-EMOA/D
 
 y
 
@@ -1922,7 +1922,7 @@ Helmholtz: 2u + k 2u = f
 0.0 0.25
 1
 
-PISR-NSGA-II
+PISR-EMOA/D
 
 00
 
@@ -1963,7 +1963,7 @@ x 1 0 y
 0.0 0.25
 1
 
-PISR-NSGA-II
+PISR-EMOA/D
 
 y
 
@@ -1987,7 +1987,7 @@ x 1 0 y
 0.15
 1
 
-PISR-NSGA-II
+PISR-EMOA/D
 2.0 × 10 1
 
 0.5
@@ -2018,7 +2018,7 @@ y
 
 0
 
-PISR-NSGA-II
+PISR-EMOA/D
 
 y
 
@@ -2074,7 +2074,7 @@ x
 Airy 2D
 
 Figure 4: Reconstructed 2D symbolic solutions representing fields û(x, y) or stream function ψ̂(x, y) (for Navier-Stokes)
-discovered by PI-NSGA-II across the benchmark suite (Part 1).
+discovered by PISR-EMOA/D across the benchmark suite (Part 1).
 
 16
 
@@ -2091,7 +2091,7 @@ discovered by PI-NSGA-II across the benchmark suite (Part 1).
 
 0
 
-PISR-NSGA-II
+PISR-EMOA/D
 
 1
 3.0 × 10 2
@@ -2173,7 +2173,7 @@ x
 
 0
 
-PISR-NSGA-II
+PISR-EMOA/D
 
 1
 3.0 × 10 2
@@ -2213,7 +2213,7 @@ Exact (top view)
 0.50
 1
 
-PISR-NSGA-II
+PISR-EMOA/D
 
 0.5
 00
@@ -2250,7 +2250,7 @@ Error
 0.50
 1
 
-PISR-NSGA-II
+PISR-EMOA/D
 
 0.5
 00
@@ -2311,7 +2311,7 @@ x
 
 x
 
-PISR-NSGA-II
+PISR-EMOA/D
 
 0.5
 
@@ -2395,7 +2395,7 @@ x
 
 0.5
 
-PISR-NSGA-II
+PISR-EMOA/D
 
 Exact (top view)
 
@@ -2464,7 +2464,7 @@ Thomas-Fermi 2D
 
 Error
 
-PISR-NSGA-II
+PISR-EMOA/D
 
 0
 
@@ -2565,7 +2565,7 @@ Nonlinear Poisson: 2u + u2 = f [FD truth]
 
 y
 
-PISR-NSGA-II
+PISR-EMOA/D
 
 y
 
@@ -2593,7 +2593,7 @@ Thomas-Fermi: 2u = u2/(x + y + 0.5) [RK4/FD truth]
 0.5
 1
 
-PISR-NSGA-II
+PISR-EMOA/D
 
 00
 
@@ -2639,7 +2639,7 @@ x
 
 0.5
 
-PISR-NSGA-II
+PISR-EMOA/D
 
 2D
 
@@ -2672,7 +2672,7 @@ x 1 0 y
 0.0 0.25
 1
 
-PISR-NSGA-II
+PISR-EMOA/D
 
 0.5
 
@@ -2711,7 +2711,7 @@ y
 
 0
 
-PISR-NSGA-II
+PISR-EMOA/D
 
 0.75
 
@@ -2755,7 +2755,7 @@ x
 Sine-Gordon 2D
 
 Figure 4: Reconstructed 2D symbolic solutions representing fields û(x, y) or stream function ψ̂(x, y) (for Navier-Stokes)
-discovered by PI-NSGA-II across the benchmark suite (Continued).
+discovered by PISR-EMOA/D across the benchmark suite (Continued).
 
 17
 
@@ -2815,7 +2815,7 @@ PINN
 0.0 0.25
 1
 
-PISR-NSGA-II
+PISR-EMOA/D
 
 0.5
 
@@ -2825,7 +2825,7 @@ x
 
 4
 
-PISR-NSGA-II
+PISR-EMOA/D
 1.0 0.75
 0.5 0.50
 0.0 0.25
@@ -2879,7 +2879,7 @@ x
 
 Navier-Stokes 2D
 Figure 4: Reconstructed 2D symbolic solutions representing fields û(x, y) or stream function ψ̂(x, y) (for Navier-Stokes)
-discovered by PI-NSGA-II across the benchmark suite (Continued).
+discovered by PISR-EMOA/D across the benchmark suite (Continued).
 
 18
 
@@ -2892,7 +2892,7 @@ Symbolic Expression û
 
 Laplace (1D)
 
-PI-NSGA-II
+PISR-EMOA/D
 Exact
 
 x
@@ -2900,7 +2900,7 @@ x
 
 Laplace (2D)
 
-PI-NSGA-II
+PISR-EMOA/D
 Exact
 
 (sin((π·x))·sinh((π·y)))
@@ -2910,7 +2910,7 @@ sinh(π)
 
 Poisson (1D)
 
-PI-NSGA-II
+PISR-EMOA/D
 Exact
 
 sin((π · x))
@@ -2918,7 +2918,7 @@ sin(πx)
 
 Poisson (2D)
 
-PI-NSGA-II
+PISR-EMOA/D
 Exact
 
 (sin((π · x)) · sin((π · y)))
@@ -2926,7 +2926,7 @@ sin(πx) sin(πy)
 
 Helmholtz (1D)
 
-PI-NSGA-II
+PISR-EMOA/D
 Exact
 
 sin((π · x))
@@ -2934,7 +2934,7 @@ sin(πx)
 
 Helmholtz (2D)
 
-PI-NSGA-II
+PISR-EMOA/D
 Exact
 
 (sin((π · x)) · sin((π · y)))
@@ -2942,7 +2942,7 @@ sin(πx) sin(πy)
 
 Schrodinger (1D)
 
-PI-NSGA-II
+PISR-EMOA/D
 Exact
 
 exp((i · (π · x)))
@@ -2950,7 +2950,7 @@ eiπx
 
 Schrodinger (2D)
 
-PI-NSGA-II
+PISR-EMOA/D
 Exact
 
 exp((i · (π · (x + y))))
@@ -2958,7 +2958,7 @@ eiπ(x+y)
 
 Airy (1D)
 
-PI-NSGA-II
+PISR-EMOA/D
 Exact
 
 (0.355957 · exp((((i − y) · P1 ( xi )) · x)))
@@ -2966,7 +2966,7 @@ Ai(x)
 
 Airy (2D)
 
-PI-NSGA-II
+PISR-EMOA/D
 Exact
 
 (0.355 · exp((−1.03981 · P3 (x))))
@@ -2974,7 +2974,7 @@ N/A
 
 HarmonicOscillator (1D)
 
-PI-NSGA-II
+PISR-EMOA/D
 Exact
 
 exp((−0.5 · (x)2 ))
@@ -2983,7 +2983,7 @@ e−0.5x
 
 HarmonicOscillator (2D)
 
-PI-NSGA-II
+PISR-EMOA/D
 Exact
 
 exp((−0.5 · ((x)2 + (y)2 )))
@@ -2993,7 +2993,7 @@ e−0.5(x +y )
 
 Fisher (1D)
 
-PI-NSGA-II
+PISR-EMOA/D
 Exact
 
 (0.0951859 + (0.705967 · x))
@@ -3001,7 +3001,7 @@ Numerical
 
 Fisher (2D)
 
-PI-NSGA-II
+PISR-EMOA/D
 Exact
 
 (0.0949327 + (0.377231 · (x + sin(y))))
@@ -3009,7 +3009,7 @@ Numerical
 
 Duffing (1D)
 
-PI-NSGA-II
+PISR-EMOA/D
 Exact
 
 (J0 (sin((x + y))) − (1.33276 · x))
@@ -3017,7 +3017,7 @@ Numerical
 
 Duffing (2D)
 
-PI-NSGA-II
+PISR-EMOA/D
 Exact
 
 (J0 (cos((1.34261 + x))) − (0.697767 · (x + y)))
@@ -3025,7 +3025,7 @@ Numerical
 
 ThomasFermi (1D)
 
-PI-NSGA-II
+PISR-EMOA/D
 Exact
 
 exp((−1.61921 · ( PP33 (x)
@@ -3035,7 +3035,7 @@ Numerical
 
 ThomasFermi (2D)
 
-PI-NSGA-II
+PISR-EMOA/D
 Exact
 
 (0.957552 − (0.398172 · (x + sin(y))))
@@ -3043,7 +3043,7 @@ Numerical
 
 NonlinearPoisson (2D)
 
-PI-NSGA-II
+PISR-EMOA/D
 Exact
 
 1
@@ -3052,14 +3052,14 @@ Exact
 
 Liouville (2D)
 
-PI-NSGA-II
+PISR-EMOA/D
 Exact
 
 1/(1 + x + y2 )
 
 Sine-Gordon (2D)
 
-PI-NSGA-II
+PISR-EMOA/D
 Exact
 
 (sin((π · x)) · sin((π · y)))
@@ -3067,7 +3067,7 @@ sin(πx) sin(πy)
 
 Navier-Stokes (2D)
 
-PI-NSGA-II
+PISR-EMOA/D
 Exact
 
 (y − (exp((−1.8101·x))·sin((6.28319·y)))
@@ -3084,7 +3084,7 @@ sin(2πy)
 
 19
 
-Table 5: Performance Comparison: Numerical (RK4/FDM), Neural (PINN), and Symbolic (PISR-NSGA-II) Methods
+Table 5: Performance Comparison: Numerical (RK4/FDM), Neural (PINN), and Symbolic (PISR-EMOA/D) Methods
 (Total MSE).
 
 PDE
@@ -3095,7 +3095,7 @@ RK4/FDM
 
 PINN
 
-PISR-NSGA-II
+PISR-EMOA/D
 
 Laplace
 
@@ -3316,7 +3316,7 @@ Navier-Stokes
 20
 
 7. Conclusions
-This paper presented PISR-NSGA-II, a novel physics-informed symbolic regression framework
+This paper presented PISR-EMOA/D, a novel physics-informed symbolic regression framework
 designed to discover closed-form analytical solutions to complex differential equations. By restructuring the learning process into a tri-objective Pareto optimization problem, the framework successfully
 decoupled domain accuracy, boundary compliance, and equation complexity. This formulation eliminated the pervasive vulnerabilities associated with manual penalty weights, ensuring that candidate
 solutions strictly satisfied physical boundary states.
@@ -3324,7 +3324,7 @@ The integration of exact Automated Symbolic Differentiation (AD) within an objec
 syntax tree proved computationally superior to standard neural network backpropagation. Furthermore, hybridizing the evolutionary engine with a local second-order Gauss-Newton solver successfully
 bridged the gap between global topological search and local parameter optimization.
 Empirical evaluations across a rigorous 13-PDE benchmark suite revealed a clear, bifurcated
-performance profile. For equations with exact closed-form analytical solutions, PISR-NSGA-II consistently operates at machine-precision accuracy (10−30 to 10−33 ), autonomously reconstructing complex non-linear functional forms such as the 2D Navier-Stokes stream function. However, the study
+performance profile. For equations with exact closed-form analytical solutions, PISR-EMOA/D consistently operates at machine-precision accuracy (10−30 to 10−33 ), autonomously reconstructing complex non-linear functional forms such as the 2D Navier-Stokes stream function. However, the study
 also highlights a fundamental limitation of the symbolic approach: when applied to highly non-linear
 PDEs lacking compact analytical solutions (e.g., Duffing, Fisher, and Thomas-Fermi), where the true
 physics require complex numerical approximations or infinite series, the algorithm struggles. Forcing

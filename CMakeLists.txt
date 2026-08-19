@@ -30,9 +30,9 @@ set(SOURCES
 )
 
 # ─── Ejecutable principal ─────────────────────────────────────────────────────
-add_executable(PISR-NSGA-II ${SOURCES})
+add_executable(PISR-EMOAD ${SOURCES})
 
-target_link_libraries(PISR-NSGA-II m stdc++fs -fopenmp)
+target_link_libraries(PISR-EMOAD m stdc++fs -fopenmp)
 
 # ─── Información de compilación ───────────────────────────────────────────────
 message(STATUS "Build type : ${CMAKE_BUILD_TYPE}")

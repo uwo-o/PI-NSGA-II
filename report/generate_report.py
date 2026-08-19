@@ -3,7 +3,7 @@
 report/generate_report.py — Genera tablas LaTeX centradas en PISR-NSGA-II.
 
 Fuentes de datos:
-  - PI-NSGA-II / RK4/FDM : results/all_runs_summary.csv
+  - PISR-NSGA-II / RK4/FDM : results/all_runs_summary.csv
   - PINN                  : results/**/*_pinn_pareto.csv  (formato: pde, dim, mse_domain, mse_boundary)
 """
 import os, sys, shutil, glob
@@ -54,7 +54,7 @@ def fmt_sci_stat(m, s):
 
 # ─── Carga de datos ───────────────────────────────────────────────────────────
 def load_pi_rk4() -> pd.DataFrame:
-    """Carga all_runs_summary.csv (PI-NSGA-II + RK4/FDM)."""
+    """Carga all_runs_summary.csv (PISR-NSGA-II + RK4/FDM)."""
     path = os.path.join(RESULTS_DIR, "all_runs_summary.csv")
     if not os.path.exists(path):
         return pd.DataFrame()
@@ -191,7 +191,7 @@ def make_runtime_table():
             full_name = f"{pde_base}_{d}D"
             sub = df[df["pde"] == full_name]
 
-            t_pi  = sub[sub["method"] == "PI-NSGA-II"]["runtime_s"].mean()
+            t_pi  = sub[sub["method"] == "PISR-NSGA-II"]["runtime_s"].mean()
             t_num = sub[sub["method"] == "RK4/FDM"]["runtime_s"].mean()
             t_pinn = sub[sub["method"] == "DeepXDE"]["runtime_s"].mean()
 
@@ -243,7 +243,7 @@ def make_symbolic_table():
             if pde_base in ONLY_1D and d == 2:
                 continue
             full_pde_name = f"{pde_base}_{d}D"
-            sub = df[(df["pde"] == full_pde_name) & (df["method"] == "PI-NSGA-II")]
+            sub = df[(df["pde"] == full_pde_name) & (df["method"] == "PISR-NSGA-II")]
             if sub.empty: continue
 
             stats = sub.agg({
@@ -302,7 +302,7 @@ def make_global_comparison_table():
             sub = df[df["pde"] == full_name]
 
             # ── PISR-NSGA-II ──
-            pi_sub = sub[sub["method"] == "PI-NSGA-II"]
+            pi_sub = sub[sub["method"] == "PISR-NSGA-II"]
             if not pi_sub.empty:
                 s = pi_sub.agg({"mse_total": ["mean","std"]})
                 f_pi = fmt_sci_stat(s.loc["mean","mse_total"], s.loc["std","mse_total"])
@@ -392,76 +392,36 @@ def make_latex_report():
         r"\author{Scientific Benchmark Report}",
         r"\maketitle",
         r"",
-        r"% ─── SEEDS ANALYSIS ────────────────────────────────────────────────────────",
-        r"\section{Symbolic Library and Physical Seed Templates}",
-        r"Unlike standard symbolic regression that relies on simple arithmetic trees, PISR-NSGA-II is augmented with a rich library of physical motifs and orthogonal polynomials. These templates act as high-level building blocks, injecting inductive bias that allows the evolutionary algorithm to effectively capture the complex topologies of non-linear PDEs. Below is the complete dictionary of 39 seed structures utilized during initialization.",
+        r"% ─── ALGORITHM OVERVIEW ────────────────────────────────────────────────────",
+        r"\section{Algorithm Overview}",
+        r"PISR-NSGA-II discovers closed-form symbolic solutions to ODEs/PDEs using classic NSGA-II (non-dominated sorting, crowding distance with a structural-diversity bonus, tournament selection, elitist truncation) over three objectives: domain residual, boundary residual, and tree size. No labeled solution data is used — only collocation points where the governing equation's residual is evaluated via exact automatic differentiation.",
         r"",
-        r"\subsection{Orthogonal Polynomials \& Spectral Basis}",
-        r"\begin{itemize}",
-        r"    \item \textbf{Legendre} $P_n(x^2+y^2)$: Optimal for spherically symmetric systems.",
-        r"    \item \textbf{Hermite} $H_n(x)e^{-x^2/2}$: The natural basis for the Quantum Harmonic Oscillator.",
-        r"    \item \textbf{Laguerre} $L_n(x)e^{-x/2}$: Essential for radial decays (e.g., Hydrogen atom).",
-        r"    \item \textbf{Chebyshev} $T_n(x)$: Minimax approximations for minimizing maximum errors.",
-        r"    \item \textbf{Spectral Basis} $a\sin(\pi x) + b\cos(\pi x)$ and \textbf{Forced Spectral} $x(1-x)\sin(\pi x)$.",
-        r"\end{itemize}",
+        r"\subsection{Exact Boundary Ansatz}",
+        r"For Dirichlet boundary conditions, the candidate is not evaluated directly: the tree $N(x)$ (or $N(x,y)$) is composed as $U = L + B \cdot N$, where $L$ interpolates the boundary values exactly (linear in 1D, transfinite/Coons-patch interpolation in 2D) and $B$ vanishes identically on the boundary. This locks the boundary residual to zero by construction for every 1D problem and every 2D problem with simple Dirichlet conditions, leaving boundary error out of the search entirely. Problems with more complex boundary conditions (e.g. stream-function/velocity constraints in Navier-Stokes) fall back to a soft penalty term.",
         r"",
-        r"\subsection{Asymptotic and Singular Operators}",
-        r"\begin{itemize}",
-        r"    \item \textbf{Padé-Exponential Attractor} $\frac{1+ax}{1+x^2}e^{-x^2}$: Captures both the rational behavior near the origin and exponential death at infinity.",
-        r"    \item \textbf{Padé Approximants (2/2)} $\frac{1+ax+bx^2}{1+cx+dx^2}$: Universal meromorphic approximant.",
-        r"    \item \textbf{Fractional Power Decay} $\exp(c \ln(x+\epsilon))$ and \textbf{Lorentzian Resonances} $\frac{1}{1+(ax)^2}$.",
-        r"    \item \textbf{Rational Decay} $\frac{1}{1+x^2+y^2+t}$ and \textbf{Complex Rational} $\frac{1}{x+ic}$.",
-        r"    \item \textbf{Thomas-Fermi Ratio} $\frac{1}{1+a\sqrt{x}+bx}$.",
-        r"\end{itemize}",
+        r"\subsection{Structural Search Operators}",
+        r"Mutation and crossover operate on the tree's additive-term decomposition (splitting a sum into independent summands) and, within each term, its multiplicative-factor decomposition (splitting a product/ratio into factors). Both levels support adding, deleting, or replacing a term/factor, and a smooth point-mutation that swaps a node for another in the same functional family (e.g. $\sin \leftrightarrow \cos \leftrightarrow \exp$ via Euler's formula) rather than an unrelated one — reducing destructive jumps between generations. A dedicated phase-rotation factor $e^{i\theta}$ (evolvable $\theta$) lets the search explore complex-plane rotations directly, exploiting the fact that the evaluation engine is complex-valued end to end.",
         r"",
-        r"\subsection{Wave Packets, Solitons and Fluid Flows}",
-        r"\begin{itemize}",
-        r"    \item \textbf{Solitons and Kinks:} $\tanh(x-ct)$, \textbf{Diagonal Interfaces} $\tanh(x+y-1)$, and \textbf{Double-Kink interactions} $\tanh(a(x-b))+\tanh(c(x-d))$.",
-        r"    \item \textbf{Anisotropic Gaussians:} $e^{-(ax^2+bxy+cy^2)}$, allowing discovery of rotated/deformed wave fronts.",
-        r"    \item \textbf{Kovasznay Flow Motif:} $y - \frac{e^{ax}\sin(by)}{c}$, providing the fundamental velocity-field structure for viscous steady flows.",
-        r"    \item \textbf{Spatiotemporal Wave Packets:} $\sin(\pi(x-t)) e^{-(x+y)^2}$ and \textbf{Complex Plane Waves} $e^{i(kx-\omega t)}$.",
-        r"    \item \textbf{Damped Oscillators:} $\frac{\sin(\omega x)}{1+x^2}$ and $e^{-ax}\sin(\omega x)$.",
-        r"    \item \textbf{Exponential Shockwaves:} $e^{-(x-ct)^2}$ and \textbf{Modulated Solitons} $\tanh(ax)\sin(bx)$.",
-        r"    \item \textbf{Log-Cosh (Dynamic Bratu):} $\ln\left(\frac{1}{\cosh^2(x+y+t)}\right)$ and \textbf{Sech Soliton} $\frac{1}{\cosh(ax)}$.",
-        r"    \item \textbf{Non-linear Airy:} $e^{-x^{1.5}}$.",
-        r"    \item \textbf{Unitary Rotation:} $\frac{x+iy}{\sqrt{x^2+y^2}}$.",
-        r"    \item \textbf{Variable Amplitude:} $x(\pi+t)$ and \textbf{Separation of Variables} $\sin(\pi x)\sin(\pi y)e^{-ct}$.",
-        r"    \item \textbf{Sinc function} $\frac{\sin(ax)}{ax}$ and \textbf{Self-similarity} $\frac{x}{\sqrt{t+1}}$.",
-        r"\end{itemize}",
+        r"\subsection{Constant Optimization}",
+        r"Every individual (not only the elite front) is locally polished each generation via adaptive gradient descent. Gradients of the residual with respect to each ERC constant are computed by complex-step differentiation — perturbing the constant along the imaginary axis and reading $\mathrm{Im}(f(c+ih))/h$ — which is exact to machine precision with no finite-difference truncation or cancellation error, at roughly half the tree evaluations of central differences. The one PDE in the benchmark suite whose residual is not holomorphic in its constants (Thomas-Fermi) falls back to finite differences.",
         r"",
-        r"\subsection{Complex Plane Explorers}",
-        r"Leveraging the algorithm's native complex-arithmetic engine, these seeds use imaginary dimensions as a continuous search space to resolve difficult topologies before projecting back to the real plane:",
-        r"\begin{itemize}",
-        r"    \item \textbf{Quantum Phase Chirp:} $e^{-(a+ib)x^2}$. Separates into decaying and oscillating components via Euler's formula.",
-        r"    \item \textbf{Log-Periodic Oscillations:} $x^{a+ib} = x^a \cos(b \ln x) + i x^a \sin(b \ln x)$. Ideal for critical phenomena.",
-        r"    \item \textbf{Conjugate Pole Resonances:} $\frac{1}{x-ic} + \frac{1}{x+ic}$. Teaches the algorithm conjugate symmetry to form stable real Lorentzians.",
-        r"    \item \textbf{Translational Phase Interference:} $\sin(x+ic)$. Converts imaginary phase shifts into real amplitude control.",
-        r"    \item \textbf{Topological Vortices:} $(x+iy)^n e^{-(x^2+y^2)}$. Directly injects orbital angular momentum (topological charge) for Gross-Pitaevskii and fluid dynamics.",
-        r"\end{itemize}",
-        r"",
-        r"\subsection{Extreme Physical Regimes}",
-        r"To tackle high-stiffness PDEs and phase transitions, we introduced templates that explicitly model non-linear boundary layers and sharp interfaces:",
-        r"\begin{itemize}",
-        r"    \item \textbf{Troesch Boundary Layer:} $c_0 + c_1 e^{a(x-1)}$. Designed for equations where the solution is flat across the domain but surges exponentially at the boundary.",
-        r"    \item \textbf{Sommerfeld Fractional Rational:} $(1 + ax^b)^{-c}$. Vital for multi-power law scaling in atomic physics (Thomas-Fermi).",
-        r"    \item \textbf{Rotated Phase Sigmoid:} $\tanh(a(x\sin\theta + y\cos\theta - d))$. Provides the sharp, directional interfaces required for Allen-Cahn phase separation and biological Fisher fronts.",
-        r"\end{itemize}",
-        r"",
-        r"\subsection{Infinite Series Operators}",
-        r"Standard genetic programming represents series expansions as bloated, deeply nested binary trees, which are penalized by parsimony pressure. To overcome this, PISR-NSGA-II implements a native \texttt{SERIES} operator that acts as a symbolic loop, accumulating exact AD derivatives for each term efficiently:",
-        r"\begin{itemize}",
-        r"    \item \textbf{Generalized SERIES Wrapper:} $\sum_{n=1}^N C_n \cdot \mathcal{T}(x,y,t,n)$. A meta-template that allows evolution to discover novel series structures by wrapping any random tree.",
-        r"    \item \textbf{Taylor / Polynomial Series:} $\sum_{n=1}^N C_n x^n$. The foundation for local approximations.",
-        r"    \item \textbf{Fourier Base Series:} $\sum_{n=1}^N C_n \sin(nx)$. Fundamental for periodic phenomena and spectral methods.",
-        r"    \item \textbf{Frobenius Series:} $\sum_{n=1}^N C_n x^{n-0.5}$. Attacks singular ODEs by modeling non-integer power behavior.",
-        r"    \item \textbf{Exponential Series:} $\sum_{n=1}^N C_n e^{-nx}$. Models multi-scale decaying processes.",
-        r"\end{itemize}",
+        r"\subsection{Robustness}",
+        r"Per-point squared residuals are capped before averaging into the domain loss, preventing a single outlier point (e.g. near a PDE singularity) from dominating the fitness signal and destabilizing selection. The training collocation batch is a large, stable subset of the domain, resampled only periodically rather than every generation, so that improvement between generations reflects genuine progress rather than sampling noise.",
         r"",
         r"% ─── METRICS ───────────────────────────────────────────────────────────────",
         r"\section{Performance Metrics}",
         r"\input{tables/global_comparison.tex}",
         r"\input{tables/runtime_comparison.tex}",
         r"\input{tables/symbolic_comparison.tex}",
+        r"",
+        r"% ─── DATA EFFICIENCY ───────────────────────────────────────────────────────",
+        r"\section{Data Efficiency vs. State-of-the-Art}",
+        r"Unlike PySR, which requires labeled ground-truth solution points to train, "
+        r"PISR-NSGA-II discovers symbolic solutions using only the governing "
+        r"differential equation and boundary conditions — zero labeled data. "
+        r"Table~\ref{tab:data_efficiency} reports the number of labeled points each "
+        r"method actually consumed alongside the final MSE achieved.",
+        r"\input{tables/data_efficiency_comparison.tex}",
         r"",
         r"% ─── CONVERGENCE ───────────────────────────────────────────────────────────",
         r"\section{Global Parsimony \& Complexity}",

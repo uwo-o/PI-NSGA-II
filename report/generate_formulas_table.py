@@ -101,12 +101,12 @@ def main():
         for d in dims:
             if pde in ["Navier-Stokes", "Navier-Stokes-Unsteady"] and d == 1: continue
             if pde in ["Lane-Emden", "Troesch", "Ginzburg-Landau", "Painleve-I"] and d == 2: continue
-            p_pi = get_formula(pde, d, "PI-NSGA-II")
+            p_pi = get_formula(pde, d, "PISR-EMOAD")
             ex_eq = exacts.get((pde, d), "N/A")
             
             p_pysr = get_sota_formula(pde, d, "PySR")
             lines.append(rf"    \multirow{{3}}{{*}}{{{pde} ({d}D)}}")
-            lines.append(rf"    & PI-NSGA-II & ${p_pi}$ \\")
+            lines.append(rf"    & PISR-NSGA-II & ${p_pi}$ \\")
             lines.append(rf"    & PySR & {p_pysr} \\")
             lines.append(rf"    & \textbf{{Exact}} & $\mathbf{{{ex_eq}}}$ \\")
             lines.append(r"    \midrule")

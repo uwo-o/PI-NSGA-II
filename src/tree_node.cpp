@@ -495,177 +495,54 @@ NodePtr random_tree(int depth, std::mt19937& gen, const PDEProblem& prob, bool f
         NodeType ops[] = {NodeType::ADD, NodeType::SUB, NodeType::MUL, NodeType::DIV};
         return make_binary(ops[std::uniform_int_distribution<int>(0,3)(gen)], random_tree(depth-1, gen, prob), random_tree(depth-1, gen, prob));
     } else if (p < 0.8) {
-        NodeType u_ops[] = {NodeType::SIN, NodeType::COS, NodeType::EXP, NodeType::TANH, NodeType::SQR};
-        return make_unary(u_ops[std::uniform_int_distribution<int>(0,4)(gen)], random_tree(depth-1, gen, prob));
+        NodeType u_ops[] = {NodeType::SIN, NodeType::COS, NodeType::EXP, NodeType::TANH, NodeType::SQR,
+                            NodeType::SINH, NodeType::COSH, NodeType::LOG, NodeType::GAUSSIAN};
+        return make_unary(u_ops[std::uniform_int_distribution<int>(0,8)(gen)], random_tree(depth-1, gen, prob));
     } else {
         NodeType p_ops[] = {NodeType::LEGENDRE, NodeType::HERMITE, NodeType::CHEBYSHEV, NodeType::LAGUERRE};
         return make_binary(p_ops[std::uniform_int_distribution<int>(0,3)(gen)], random_tree(depth-1, gen, prob), make_erc(std::uniform_int_distribution<int>(0,3)(gen)));
     }
 }
 
+// Mismo criterio que random_tree(): sustituir 'y'/'t' por 'x' cuando el
+// problema no tiene esa dimensión/es estacionario, en vez de generarlas igual.
+// Antes estos casos metían una 'y' (o 't') fantasma en problemas 1D/estacionarios
+// — inofensiva en valor (siempre evalúa en 0), pero ensucia la fórmula exportada
+// y desperdicia tamaño de árbol (BIC/parsimonia) sin aportar nada.
+static NodePtr special_var2(const PDEProblem& prob) {
+    return (prob.dim >= 2) ? make_var('y') : make_var('x');
+}
+static NodePtr special_var_t(const PDEProblem& prob) {
+    return prob.is_unsteady ? make_var('t') : make_var('x');
+}
+
 NodePtr random_tree_special(int depth, std::mt19937& gen, const PDEProblem& prob, const PDEPriors& priors) {
     std::vector<int> valid_choices;
-    for (int i = 0; i <= 71; ++i) valid_choices.push_back(i);
-    if (priors.pole_at_origin) { for (int i = 0; i < 15; ++i) valid_choices.push_back(60); }
-    if (priors.autonomous_x || priors.autonomous_y) { for (int i = 0; i < 15; ++i) valid_choices.push_back(61); }
-    if (priors.scale_invariant) { for (int i = 0; i < 15; ++i) valid_choices.push_back(62); }
+    for (int i = 0; i <= 9; ++i) valid_choices.push_back(i);
+    if (priors.pole_at_origin) { for (int i = 0; i < 5; ++i) valid_choices.push_back(10); }
+    if (priors.autonomous_x || priors.autonomous_y) { for (int i = 0; i < 5; ++i) valid_choices.push_back(11); }
+    if (priors.scale_invariant) { for (int i = 0; i < 5; ++i) valid_choices.push_back(12); }
     int choice = valid_choices[std::uniform_int_distribution<int>(0, valid_choices.size() - 1)(gen)];
     last_special_choice = choice;
     switch (choice) {
-        case 4: return make_binary(NodeType::MUL, make_var('x'), make_unary(NodeType::EXP, make_binary(NodeType::MUL, make_erc(-1.0), make_var('x'))));
-        case 5: return make_binary(NodeType::DIV, make_var('x'), make_binary(NodeType::ADD, make_erc(1.0), make_unary(NodeType::SQR, make_var('x'))));
-        case 6: return make_binary(NodeType::MUL, make_unary(NodeType::SIN, make_binary(NodeType::MUL, make_const_pi(), make_var('x'))), make_unary(NodeType::COS, make_binary(NodeType::MUL, make_const_pi(), make_var('y'))));
-        case 7: return make_binary(NodeType::SUB, make_erc(1.0), make_unary(NodeType::GAUSSIAN, make_binary(NodeType::ADD, make_unary(NodeType::SQR, make_var('x')), make_unary(NodeType::SQR, make_var('y')))));
-        case 8: return make_binary(NodeType::MUL, make_unary(NodeType::TANH, make_var('x')), make_unary(NodeType::TANH, make_var('y')));
-        case 9: return make_binary(NodeType::DIV, make_erc(1.0), make_unary(NodeType::COSH, make_binary(NodeType::ADD, make_var('x'), make_var('y'))));
-        case 10: return make_binary(NodeType::MUL, make_binary(NodeType::ADD, make_erc(1.0), make_var('x')), make_unary(NodeType::SIN, make_binary(NodeType::MUL, make_const_pi(), make_var('y'))));
-        case 11: return make_binary(NodeType::POW, make_binary(NodeType::ADD, make_unary(NodeType::SQR, make_var('x')), make_unary(NodeType::SQR, make_var('y'))), make_erc(1.0));
-        case 12: return make_binary(NodeType::MUL, make_var('t'), make_unary(NodeType::EXP, make_binary(NodeType::MUL, make_erc(-1.0), make_binary(NodeType::ADD, make_unary(NodeType::SQR, make_var('x')), make_unary(NodeType::SQR, make_var('y'))))));
-        case 13: return make_binary(NodeType::ADD, make_var('x'), make_binary(NodeType::MUL, make_erc(1.0), make_var('t')));
-        case 14: return make_binary(NodeType::MUL, make_unary(NodeType::SIN, make_binary(NodeType::MUL, make_const_pi(), make_var('x'))), make_unary(NodeType::EXP, make_binary(NodeType::MUL, make_erc(-1.0), make_var('t'))));
-        case 15: return make_binary(NodeType::DIV, make_var('x'), make_binary(NodeType::ADD, make_erc(1.0), make_var('t')));
-        case 16: return make_binary(NodeType::MUL, make_var('x'), make_var('y'));
-        case 17: return make_binary(NodeType::ADD, make_unary(NodeType::SQR, make_var('x')), make_unary(NodeType::SQR, make_var('y')));
-        case 18: return make_binary(NodeType::MUL, make_unary(NodeType::SIN, make_binary(NodeType::MUL, make_const_pi(), make_var('x'))), make_unary(NodeType::SIN, make_binary(NodeType::MUL, make_const_pi(), make_var('y'))));
-        case 19: return make_binary(NodeType::SUB, make_var('x'), make_var('y'));
-        case 20: return make_binary(NodeType::DIV, make_var('x'), make_binary(NodeType::ADD, make_erc(1.0), make_var('y')));
-        case 21: return make_unary(NodeType::EXP, make_binary(NodeType::MUL, make_erc(-1.0), make_binary(NodeType::ADD, make_unary(NodeType::SQR, make_var('x')), make_unary(NodeType::SQR, make_var('y')))));
-        case 22: return make_binary(NodeType::MUL, make_var('x'), make_unary(NodeType::EXP, make_var('y')));
-        case 23: return make_binary(NodeType::ADD, make_binary(NodeType::MUL, make_erc(1.0), make_var('x')), make_binary(NodeType::MUL, make_erc(1.0), make_var('y')));
-        case 24: return make_binary(NodeType::MUL, make_unary(NodeType::COS, make_binary(NodeType::MUL, make_const_pi(), make_var('x'))), make_unary(NodeType::COS, make_binary(NodeType::MUL, make_const_pi(), make_var('y'))));
-        case 25: return make_binary(NodeType::MUL, make_var('x'), make_unary(NodeType::SIN, make_binary(NodeType::MUL, make_const_pi(), make_var('y'))));
-        case 26: return make_binary(NodeType::DIV, make_unary(NodeType::SQR, make_var('x')), make_binary(NodeType::ADD, make_erc(1.0), make_unary(NodeType::SQR, make_var('y'))));
-        case 27: return make_binary(NodeType::ADD, make_var('x'), make_unary(NodeType::SIN, make_binary(NodeType::MUL, make_const_pi(), make_var('y'))));
-        case 28: return make_binary(NodeType::MUL, make_unary(NodeType::EXP, make_var('x')), make_unary(NodeType::SIN, make_binary(NodeType::MUL, make_const_pi(), make_var('y'))));
-        case 29: return make_binary(NodeType::SUB, make_unary(NodeType::SQR, make_var('x')), make_unary(NodeType::SQR, make_var('y')));
-        case 30: return make_binary(NodeType::ADD, make_erc(1.0), make_binary(NodeType::MUL, make_var('x'), make_var('y')));
-        case 31: return make_binary(NodeType::DIV, make_erc(1.0), make_binary(NodeType::ADD, make_erc(1.0), make_binary(NodeType::ADD, make_unary(NodeType::SQR, make_var('x')), make_unary(NodeType::SQR, make_var('y')))));
-        case 32: return make_binary(NodeType::MUL, make_unary(NodeType::SIN, make_binary(NodeType::MUL, make_const_pi(), make_binary(NodeType::ADD, make_var('x'), make_var('y')))), make_unary(NodeType::EXP, make_binary(NodeType::MUL, make_erc(-1.0), make_var('t'))));
-        case 33: return make_binary(NodeType::ADD, make_unary(NodeType::SQR, make_var('x')), make_binary(NodeType::MUL, make_var('y'), make_var('t')));
-        case 34: return make_binary(NodeType::DIV, make_var('x'), make_binary(NodeType::ADD, make_erc(1.0), make_unary(NodeType::SQR, make_var('t'))));
-        case 35: return make_binary(NodeType::MUL, make_var('x'), make_unary(NodeType::COS, make_binary(NodeType::MUL, make_const_pi(), make_binary(NodeType::ADD, make_var('y'), make_var('t')))));
-        case 36: return make_binary(NodeType::SUB, make_var('x'), make_binary(NodeType::MUL, make_var('y'), make_var('t')));
-        case 37: return make_binary(NodeType::ADD, make_unary(NodeType::EXP, make_var('x')), make_binary(NodeType::MUL, make_erc(1.0), make_var('t')));
-        case 38: return make_binary(NodeType::MUL, make_unary(NodeType::SIN, make_binary(NodeType::MUL, make_const_pi(), make_var('x'))), make_unary(NodeType::COS, make_binary(NodeType::MUL, make_const_pi(), make_var('t'))));
-        case 39: return make_binary(NodeType::DIV, make_binary(NodeType::ADD, make_var('x'), make_var('y')), make_binary(NodeType::ADD, make_erc(1.0), make_var('t')));
-        case 40: return make_binary(NodeType::ADD, make_unary(NodeType::SQR, make_var('x')), make_unary(NodeType::SQR, make_var('t')));
-        case 41: return make_binary(NodeType::MUL, make_var('x'), make_unary(NodeType::EXP, make_binary(NodeType::MUL, make_erc(-1.0), make_var('t'))));
-        case 42: return make_binary(NodeType::ADD, make_var('x'), make_binary(NodeType::ADD, make_var('y'), make_var('t')));
-        case 43: return make_binary(NodeType::MUL, make_var('x'), make_binary(NodeType::MUL, make_var('y'), make_var('t')));
-        case 44: return make_binary(NodeType::SUB, make_binary(NodeType::ADD, make_var('x'), make_var('y')), make_var('t'));
-        case 45: return make_binary(NodeType::DIV, make_erc(1.0), make_binary(NodeType::ADD, make_erc(1.0), make_binary(NodeType::ADD, make_var('x'), make_binary(NodeType::ADD, make_var('y'), make_var('t')))));
-        case 46: return make_binary(NodeType::MUL, make_unary(NodeType::SIN, make_binary(NodeType::MUL, make_const_pi(), make_var('x'))), make_binary(NodeType::MUL, make_unary(NodeType::SIN, make_binary(NodeType::MUL, make_const_pi(), make_var('y'))), make_unary(NodeType::SIN, make_binary(NodeType::MUL, make_const_pi(), make_var('t')))));
-        case 47: return make_binary(NodeType::ADD, make_unary(NodeType::SQR, make_var('x')), make_binary(NodeType::SUB, make_unary(NodeType::SQR, make_var('y')), make_unary(NodeType::SQR, make_var('t'))));
-        case 48: return make_binary(NodeType::MUL, make_var('x'), make_unary(NodeType::EXP, make_binary(NodeType::MUL, make_var('y'), make_var('t'))));
-        case 49: return make_binary(NodeType::ADD, make_binary(NodeType::MUL, make_erc(1.0), make_var('x')), make_binary(NodeType::MUL, make_erc(1.0), make_var('t')));
-        case 50: return make_binary(NodeType::DIV, make_var('x'), make_binary(NodeType::ADD, make_var('y'), make_var('t')));
-        case 51: return make_binary(NodeType::MUL, make_unary(NodeType::TANH, make_var('x')), make_unary(NodeType::EXP, make_binary(NodeType::MUL, make_erc(-1.0), make_var('t'))));
-        case 52: return make_binary(NodeType::ADD, make_unary(NodeType::SQR, make_var('x')), make_binary(NodeType::MUL, make_erc(1.0), make_var('t')));
-        case 53: {
-            auto nx = make_binary(NodeType::MUL, make_const_pi(), make_var('x'));
-            auto ny = make_binary(NodeType::MUL, make_const_pi(), make_var('y'));
-            auto nt = make_binary(NodeType::MUL, make_erc(1.0), make_var('t'));
-            return std::make_unique<SeriesNode>(3, make_binary(NodeType::MUL, make_binary(NodeType::MUL, make_unary(NodeType::SIN, std::move(nx)), make_unary(NodeType::SIN, std::move(ny))), make_unary(NodeType::EXP, make_binary(NodeType::MUL, make_erc(-1.0), std::move(nt)))));
-        }
-        case 54: return make_binary(NodeType::ADD, make_binary(NodeType::MUL, make_erc(1.0), make_var('x')), make_binary(NodeType::MUL, make_erc(1.0), make_var('y')));
-        case 55: return make_binary(NodeType::ADD, make_binary(NodeType::ADD, make_binary(NodeType::MUL, make_erc(1.0), make_var('x')), make_binary(NodeType::MUL, make_erc(1.0), make_var('y'))), make_binary(NodeType::MUL, make_erc(1.0), make_var('t')));
-        case 56: return make_binary(NodeType::MUL, make_erc(1.0), make_binary(NodeType::MUL, make_var('x'), make_var('y')));
-        case 57: return make_binary(NodeType::MUL, make_erc(1.0), make_unary(NodeType::SIN, make_binary(NodeType::MUL, make_const_pi(), make_var('x'))));
-        case 58: return make_binary(NodeType::MUL, make_var('x'), make_unary(NodeType::EXP, make_binary(NodeType::MUL, make_erc(-1.0), make_unary(NodeType::SQR, make_var('x')))));
-        case 59: return make_binary(NodeType::ADD, make_erc(1.0), make_binary(NodeType::MUL, make_erc(1.0), make_unary(NodeType::SQR, make_var('x'))));
-        case 60: return skeleton_rational(depth, gen, prob);
-        case 61: return skeleton_spectral(depth, gen, prob);
-        case 62: return skeleton_frobenius(depth, gen, prob);
-        case 63: { // Vórtice de Lamb-Oseen: (1 - exp(-r^2)) / r^2
-            auto r2_a = make_binary(NodeType::ADD, make_unary(NodeType::SQR, make_var('x')), make_unary(NodeType::SQR, make_var('y')));
-            auto r2_b = make_binary(NodeType::ADD, make_unary(NodeType::SQR, make_var('x')), make_unary(NodeType::SQR, make_var('y')));
-            auto exp_term = make_unary(NodeType::EXP, make_binary(NodeType::MUL, make_erc(-1.0), std::move(r2_a)));
-            auto sub_term = make_binary(NodeType::SUB, make_erc(1.0), std::move(exp_term));
-            return make_binary(NodeType::DIV, std::move(sub_term), std::move(r2_b));
-        }
-        case 64: return make_binary(NodeType::SUB, make_unary(NodeType::SQR, make_var('x')), make_unary(NodeType::SQR, make_var('y'))); 
-        case 65: return make_binary(NodeType::MUL, make_unary(NodeType::EXP, make_binary(NodeType::MUL, make_erc(-1.0), make_var('t'))), make_unary(NodeType::COS, make_binary(NodeType::MUL, make_const_pi(), make_var('x')))); 
-        case 66: return make_binary(NodeType::DIV, make_binary(NodeType::ADD, make_erc(1.0), make_var('x')), make_binary(NodeType::ADD, make_erc(1.0), make_binary(NodeType::ADD, make_var('x'), make_unary(NodeType::SQR, make_var('x'))))); 
-        case 67: return make_binary(NodeType::DIV, make_erc(1.0), make_binary(NodeType::POW, make_binary(NodeType::ADD, make_unary(NodeType::SQR, make_var('x')), make_erc(1.0)), make_erc(1.0))); 
-        case 68: { auto fx = make_binary(NodeType::ADD, make_binary(NodeType::MUL, make_erc(1.0), make_var('x')), make_erc(1.0));
-            auto gy = make_binary(NodeType::ADD, make_binary(NodeType::MUL, make_erc(1.0), make_var('y')), make_erc(1.0));
-            return make_binary(NodeType::MUL, std::move(fx), std::move(gy)); }
-        case 69: { auto ex = make_unary(NodeType::EXP, make_binary(NodeType::MUL, make_erc(1.0), make_var('x')));
-            auto sy = make_unary(NodeType::SIN, make_binary(NodeType::MUL, make_const_pi(), make_var('y')));
-            return make_binary(NodeType::MUL, std::move(ex), std::move(sy)); }
-        case 0: return make_unary(NodeType::TANH, make_binary(NodeType::SUB, make_var('x'), make_binary(NodeType::MUL, make_erc(1.0), make_var('t'))));
-        case 1: return make_binary(NodeType::MUL, make_var('x'), make_binary(NodeType::ADD, make_const_pi(), make_var('t')));
-        case 2: return make_binary(NodeType::MUL, make_unary(NodeType::SIN, make_binary(NodeType::MUL, make_const_pi(), make_binary(NodeType::SUB, make_var('x'), make_var('t')))), make_unary(NodeType::GAUSSIAN, make_var('x')));
-        case 3: return make_binary(NodeType::DIV, make_erc(1.0), make_binary(NodeType::ADD, make_erc(1.0), make_binary(NodeType::ADD, make_unary(NodeType::SQR, make_var('x')), make_var('t'))));
-        case 70: { /* Kovasznay Skeleton (Agnostic + PI) */ 
-            auto ex = make_unary(NodeType::EXP, make_binary(NodeType::MUL, make_erc(1.0), make_var('x'))); 
-            auto sy = make_unary(NodeType::SIN, make_binary(NodeType::MUL, make_binary(NodeType::MUL, make_erc(2.0), make_const_pi()), make_var('y'))); 
-            auto term = make_binary(NodeType::MUL, make_erc(1.0), make_binary(NodeType::MUL, std::move(ex), std::move(sy)));
-            return make_binary(NodeType::SUB, make_var('y'), std::move(term)); 
-        }
-        case 71: { /* Unsteady Decay Skeleton (Agnostic + PI) */ 
-            auto sx = make_unary(NodeType::SIN, make_binary(NodeType::MUL, make_const_pi(), make_var('x'))); 
-            auto sy = make_unary(NodeType::SIN, make_binary(NodeType::MUL, make_const_pi(), make_var('y'))); 
-            auto et = make_unary(NodeType::EXP, make_binary(NodeType::MUL, make_erc(-1.0), make_var('t'))); 
-            return make_binary(NodeType::MUL, std::move(sx), make_binary(NodeType::MUL, std::move(sy), std::move(et))); 
-        }
-        default: return get_exact_solution_tree(prob);
+        case 0: return make_binary(NodeType::DIV, make_erc(1.0), make_binary(NodeType::ADD, make_erc(1.0), make_binary(NodeType::ADD, make_unary(NodeType::SQR, make_var('x')), make_unary(NodeType::SQR, special_var2(prob)))));
+        case 1: return make_unary(NodeType::EXP, make_binary(NodeType::MUL, make_erc(-1.0), make_binary(NodeType::ADD, make_unary(NodeType::SQR, make_var('x')), make_unary(NodeType::SQR, special_var2(prob)))));
+        case 2: return make_binary(NodeType::MUL, make_unary(NodeType::SIN, make_binary(NodeType::MUL, make_const_pi(), make_var('x'))), make_unary(NodeType::SIN, make_binary(NodeType::MUL, make_const_pi(), special_var2(prob))));
+        case 3: return make_binary(NodeType::MUL, make_unary(NodeType::COS, make_binary(NodeType::MUL, make_const_pi(), make_var('x'))), make_unary(NodeType::COS, make_binary(NodeType::MUL, make_const_pi(), special_var2(prob))));
+        case 4: return make_binary(NodeType::MUL, make_unary(NodeType::TANH, make_var('x')), make_unary(NodeType::TANH, special_var2(prob)));
+        case 5: return make_binary(NodeType::MUL, make_var('x'), special_var2(prob));
+        case 6: return make_binary(NodeType::ADD, make_binary(NodeType::MUL, make_erc(1.0), make_var('x')), make_binary(NodeType::MUL, make_erc(1.0), special_var2(prob)));
+        case 7: return make_binary(NodeType::ADD, make_unary(NodeType::SQR, make_var('x')), make_unary(NodeType::SQR, special_var2(prob)));
+        case 8: return make_binary(NodeType::MUL, make_unary(NodeType::SIN, make_binary(NodeType::MUL, make_const_pi(), make_var('x'))), make_unary(NodeType::EXP, make_binary(NodeType::MUL, make_erc(-1.0), special_var_t(prob))));
+        case 9: return make_binary(NodeType::MUL, make_var('x'), make_unary(NodeType::EXP, make_binary(NodeType::MUL, make_erc(-1.0), make_unary(NodeType::SQR, make_var('x')))));
+        case 10: return skeleton_rational(depth, gen, prob);
+        case 11: return skeleton_spectral(depth, gen, prob);
+        case 12: return skeleton_frobenius(depth, gen, prob);
+        // Inalcanzable en la práctica (valid_choices sólo puebla 0-12), pero si algún
+        // día deja de serlo, degradamos a un árbol genérico en vez de filtrar la
+        // solución exacta del PDE (ver auditoría: get_exact_solution_tree eliminada).
+        default: return random_tree(depth, gen, prob);
     }
-}
-
-NodePtr get_exact_solution_tree(const PDEProblem& prob) {
-    if (prob.dim == 1) {
-        if (prob.type == PDE::LAPLACE) return make_var('x');
-        if (prob.type == PDE::POISSON || prob.type == PDE::HELMHOLTZ || prob.type == PDE::SINE_GORDON) 
-            return make_unary(NodeType::SIN, make_binary(NodeType::MUL, make_const_pi(), make_var('x')));
-        if (prob.type == PDE::SCHRODINGER)
-            return make_unary(NodeType::EXP, make_binary(NodeType::MUL, make_const_i(), make_binary(NodeType::MUL, make_const_pi(), make_var('x'))));
-        if (prob.type == PDE::HARMONIC_OSCILLATOR) return make_unary(NodeType::GAUSSIAN, make_var('x')); 
-        if (prob.type == PDE::AIRY) return make_unary(NodeType::EXP, make_binary(NodeType::MUL, make_erc(-1.0), make_var('x')));
-        if (prob.type == PDE::FISHER) return make_binary(NodeType::DIV, make_erc(1.0), make_binary(NodeType::ADD, make_erc(1.0), make_unary(NodeType::EXP, make_binary(NodeType::MUL, make_erc(-1.0), make_var('x')))));
-        if (prob.type == PDE::DUFFING) return make_binary(NodeType::DIV, make_erc(1.0), make_unary(NodeType::COSH, make_var('x')));
-        if (prob.type == PDE::THOMAS_FERMI) return make_binary(NodeType::DIV, make_erc(1.0), make_binary(NodeType::ADD, make_var('x'), make_erc(0.5)));
-        if (prob.type == PDE::NONLINEAR_POISSON || prob.type == PDE::LIOUVILLE) return make_binary(NodeType::DIV, make_erc(1.0), make_binary(NodeType::ADD, make_erc(1.0), make_unary(NodeType::SQR, make_var('x'))));
-        if (prob.type == PDE::LANE_EMDEN) return make_binary(NodeType::SUB, make_erc(1.0), make_binary(NodeType::DIV, make_unary(NodeType::SQR, make_var('x')), make_erc(6.0)));
-        if (prob.type == PDE::TROESCH) return make_binary(NodeType::DIV, make_unary(NodeType::SINH, make_binary(NodeType::MUL, make_erc(3.0), make_var('x'))), make_unary(NodeType::SINH, make_erc(3.0)));
-        if (prob.type == PDE::GINZBURG_LANDAU) return make_unary(NodeType::TANH, make_var('x'));
-        if (prob.type == PDE::PAINLEVE1) return make_binary(NodeType::MUL, make_erc(0.5), make_unary(NodeType::SQR, make_var('x')));
-    } else {
-        if (prob.type == PDE::LAPLACE) {
-            auto sx = make_unary(NodeType::SIN, make_binary(NodeType::MUL, make_const_pi(), make_var('x')));
-            auto sy = make_unary(NodeType::SINH, make_binary(NodeType::MUL, make_const_pi(), make_var('y')));
-            return make_binary(NodeType::MUL, std::move(sx), std::move(sy));
-        }
-        if (prob.type == PDE::POISSON || prob.type == PDE::HELMHOLTZ || prob.type == PDE::SINE_GORDON) {
-            auto sx = make_unary(NodeType::SIN, make_binary(NodeType::MUL, make_const_pi(), make_var('x')));
-            auto sy = make_unary(NodeType::SIN, make_binary(NodeType::MUL, make_const_pi(), make_var('y')));
-            return make_binary(NodeType::MUL, std::move(sx), std::move(sy));
-        }
-        if (prob.type == PDE::HARMONIC_OSCILLATOR) {
-            auto gx = make_unary(NodeType::GAUSSIAN, make_var('x')); auto gy = make_unary(NodeType::GAUSSIAN, make_var('y'));
-            return make_binary(NodeType::MUL, std::move(gx), std::move(gy));
-        }
-        if (prob.type == PDE::NAVIER_STOKES) {
-            // Flujo de Kovasznay: y - exp(lambda*x)*sin(2*pi*y)/(2*pi*Re)
-            double Re = 1.0 / prob.k2;
-            double lambda = Re/2.0 - std::sqrt(Re*Re/4.0 + 4.0*PI_VAL*PI_VAL);
-            auto ex = make_unary(NodeType::EXP, make_binary(NodeType::MUL, make_erc(lambda), make_var('x')));
-            auto sy = make_unary(NodeType::SIN, make_binary(NodeType::MUL, make_erc(2.0*PI_VAL), make_var('y')));
-            auto num = make_binary(NodeType::MUL, std::move(ex), std::move(sy));
-            auto den = make_erc(2.0*PI_VAL*Re);
-            auto term = make_binary(NodeType::DIV, std::move(num), std::move(den));
-            return make_binary(NodeType::SUB, make_var('y'), std::move(term));
-        }
-        if (prob.type == PDE::NAVIER_STOKES_UNSTEADY) {
-            auto sx = make_unary(NodeType::SIN, make_binary(NodeType::MUL, make_const_pi(), make_var('x')));
-            auto sy = make_unary(NodeType::SIN, make_binary(NodeType::MUL, make_const_pi(), make_var('y')));
-            double lambda = 2.0 * PI_VAL * PI_VAL * prob.k2;
-            auto et = make_unary(NodeType::EXP, make_binary(NodeType::MUL, make_erc(-lambda), make_var('t')));
-            return make_binary(NodeType::MUL, std::move(sx), make_binary(NodeType::MUL, std::move(sy), std::move(et)));
-        }
-        if (prob.type == PDE::AIRY) return make_unary(NodeType::EXP, make_binary(NodeType::MUL, make_erc(-1.0), make_binary(NodeType::ADD, make_var('x'), make_var('y'))));
-    }
-    return make_var('x');
 }
 
 static bool is_v(const Node* n, double target) {
@@ -720,9 +597,6 @@ void BinaryNode::round_constants(double epsilon) {
     }
 }
 void SeriesNode::round_constants(double epsilon) { for (auto& c : coeffs) { double r = c.real(); double nearest = std::round(r); if (std::abs(r - nearest) < epsilon) c = Complex(nearest, c.imag()); } if (child) child->round_constants(epsilon); }
-
-NodePtr remove_nested_polynomials(NodePtr node, bool inside_poly) { return node; }
-Complex fd_laplacian(const NodePtr& tree, double x, double y, int dim, double h) { return 0.0; }
 
 bool UnaryNode::has_nested_trig() const { if (!child) return false; if (is_trig(type) && child->contains_trig()) return true; return child->has_nested_trig(); }
 bool UnaryNode::contains_trig() const { if (is_trig(type)) return true; return child && child->contains_trig(); }
@@ -792,8 +666,202 @@ NodePtr build_additive_tree(const std::vector<NodePtr>& terms) {
     return root;
 }
 
-NodePtr tree_mutate(const NodePtr& t, std::mt19937& gen, const PDEProblem& p) {
+// ─── Descomposición multiplicativa (análoga a la aditiva, un nivel abajo) ───
+// Muchas soluciones reales son razones, no sumas (ej. Troesch: sinh(3x)/sinh(3)).
+// Sin esto, la mutación/cruzamiento sólo sabe recombinar sumandos — un término
+// que es un cociente se trata como un bloque indivisible (sólo mutación puntual
+// o regeneración total), sin forma de recombinar sus factores por separado.
+//
+// "Invertir" un factor de un DIV se representa como DIV(1, factor), NO como
+// POW(factor, -1): apply_binary devuelve NaN si la base de POW es negativa
+// (para evitar ramas complejas), y cualquier subárbol puede evaluar negativo —
+// con POW esto reventaría constantemente. DIV no tiene esa restricción (sólo
+// falla con denominador ~0).
+std::vector<NodePtr> extract_multiplicative_factors(const NodePtr& root) {
+    std::vector<NodePtr> factors;
+    if (!root) return factors;
+    if (root->get_type() == NodeType::MUL) {
+        auto* bn = dynamic_cast<const BinaryNode*>(root.get());
+        auto left_factors = extract_multiplicative_factors(bn->left);
+        auto right_factors = extract_multiplicative_factors(bn->right);
+        for (auto& f : left_factors) factors.push_back(std::move(f));
+        for (auto& f : right_factors) factors.push_back(std::move(f));
+    } else if (root->get_type() == NodeType::DIV) {
+        auto* bn = dynamic_cast<const BinaryNode*>(root.get());
+        auto left_factors = extract_multiplicative_factors(bn->left);
+        auto right_factors = extract_multiplicative_factors(bn->right);
+        for (auto& f : left_factors) factors.push_back(std::move(f));
+        for (auto& f : right_factors) {
+            factors.push_back(make_binary(NodeType::DIV, make_erc(1.0), std::move(f)));
+        }
+    } else {
+        factors.push_back(root->clone());
+    }
+    return factors;
+}
+
+NodePtr build_multiplicative_tree(const std::vector<NodePtr>& factors) {
+    if (factors.empty()) return make_erc(1.0);
+    NodePtr root = factors[0]->clone();
+    for (size_t i = 1; i < factors.size(); ++i) {
+        root = make_binary(NodeType::MUL, std::move(root), factors[i]->clone());
+    }
+    return root;
+}
+
+// ─── Familias de vecindad funcional (para mutación suave) ───────────────────
+// Grupos de NodeType matemáticamente "cercanos": intercambiar dentro de un
+// mismo grupo es una adaptación suave (ej. sin<->cos<->exp vía la fórmula de
+// Euler); saltar entre grupos (ej. sin->x) puede destruir estructura físicamente
+// correcta y sólo debe ocurrir por otros operadores (crecimiento/reemplazo raro).
+static const std::vector<NodeType>& family_of(NodeType t) {
+    static const std::vector<NodeType> TRANSCENDENTAL = {
+        NodeType::SIN, NodeType::COS, NodeType::SINH, NodeType::COSH,
+        NodeType::TANH, NodeType::EXP, NodeType::GAUSSIAN, NodeType::LOG
+    };
+    static const std::vector<NodeType> POWER_LIKE = {
+        NodeType::POW, NodeType::LEGENDRE, NodeType::HERMITE,
+        NodeType::CHEBYSHEV, NodeType::LAGUERRE
+    };
+    static const std::vector<NodeType> ADD_SUB = {NodeType::ADD, NodeType::SUB};
+    static const std::vector<NodeType> MUL_DIV = {NodeType::MUL, NodeType::DIV};
+    static const std::vector<NodeType> VARS = {NodeType::VAR_X, NodeType::VAR_Y, NodeType::VAR_T};
+    static const std::vector<NodeType> NAMED_CONSTS = {
+        NodeType::CONST_PI, NodeType::CONST_E, NodeType::CONST_G, NodeType::CONST_C,
+        NodeType::CONST_HBAR, NodeType::CONST_KB, NodeType::CONST_EPS0
+    };
+    static const std::vector<NodeType> EMPTY = {};
+    auto has = [](const std::vector<NodeType>& v, NodeType x) { return std::find(v.begin(), v.end(), x) != v.end(); };
+    if (has(TRANSCENDENTAL, t)) return TRANSCENDENTAL;
+    if (has(POWER_LIKE, t))      return POWER_LIKE;
+    if (has(ADD_SUB, t))         return ADD_SUB;
+    if (has(MUL_DIV, t))         return MUL_DIV;
+    if (has(VARS, t))            return VARS;
+    if (has(NAMED_CONSTS, t))    return NAMED_CONSTS;
+    // SQR (deliberadamente aislado: es el borde "algebraico" que no debe
+    // fusionarse con el mundo transcendental — el salto sin->lineal que destruye
+    // estructura), ERC, VAR_N, VAR_Z, CONST_I, SERIES: sin swap.
+    return EMPTY;
+}
+
+// Recorre el árbol por índice (mismo patrón que get_node_at/replace_node_at) y,
+// al llegar al nodo objetivo, cambia su NodeType por otro miembro de su misma
+// familia funcional, preservando exactamente los mismos hijos. `done` indica si
+// realmente hubo cambio (el nodo objetivo puede no tener familia, ej. un ERC).
+static void mutate_node_type_at(NodePtr& cur, int& idx, std::mt19937& gen, const PDEProblem& prob, bool& done) {
+    if (!cur || done) return;
+    if (idx == 0) {
+        idx = -1;
+        NodeType t = cur->get_type();
+        std::vector<NodeType> fam;
+        if (t == NodeType::VAR_X || t == NodeType::VAR_Y || t == NodeType::VAR_T) {
+            fam.push_back(NodeType::VAR_X);
+            if (prob.dim >= 2) fam.push_back(NodeType::VAR_Y);
+            if (prob.is_unsteady) fam.push_back(NodeType::VAR_T);
+        } else {
+            fam = family_of(t);
+        }
+        if (fam.size() > 1) {
+            NodeType new_type = t;
+            while (new_type == t) new_type = fam[std::uniform_int_distribution<int>(0, (int)fam.size() - 1)(gen)];
+            if (auto* tn = dynamic_cast<TerminalNode*>(cur.get())) tn->type = new_type;
+            else if (auto* un = dynamic_cast<UnaryNode*>(cur.get())) un->type = new_type;
+            else if (auto* bn = dynamic_cast<BinaryNode*>(cur.get())) bn->type = new_type;
+            done = true;
+        }
+        return;
+    }
+    idx--;
+    if (auto* un = dynamic_cast<UnaryNode*>(cur.get())) {
+        if (un->child && idx >= 0) mutate_node_type_at(un->child, idx, gen, prob, done);
+    } else if (auto* bn = dynamic_cast<BinaryNode*>(cur.get())) {
+        if (bn->left && idx >= 0) mutate_node_type_at(bn->left, idx, gen, prob, done);
+        if (bn->right && idx >= 0) mutate_node_type_at(bn->right, idx, gen, prob, done);
+    } else if (auto* sn = dynamic_cast<SeriesNode*>(cur.get())) {
+        if (sn->child && idx >= 0) mutate_node_type_at(sn->child, idx, gen, prob, done);
+    }
+}
+
+NodePtr tree_mutate_point(const NodePtr& tree, std::mt19937& gen, const PDEProblem& prob) {
+    if (!tree) return nullptr;
+    NodePtr result = tree->clone();
+    int n = result->count_nodes();
+    if (n <= 0) return result;
+    // Varios intentos: no todos los nodos tienen familia (ERC, SQR, SERIES, ...),
+    // así que si el índice elegido cae en uno sin familia, se reintenta.
+    for (int attempt = 0; attempt < 5; ++attempt) {
+        int idx = std::uniform_int_distribution<int>(0, n - 1)(gen);
+        bool done = false;
+        mutate_node_type_at(result, idx, gen, prob, done);
+        if (done) break;
+    }
+    return result;
+}
+
+// Mutación a nivel de factor multiplicativo: borra/agrega/reemplaza un factor
+// de un producto/razón, mismo espíritu que la mutación de términos aditivos
+// pero un nivel abajo. Si el término no tiene más de un factor (no es un
+// producto/razón, ej. un solo sin(x)), no hay nada que recombinar y cae de
+// vuelta a la mutación puntual suave de siempre.
+// Factor de rotación de fase: exp(i*theta), theta evolucionable (ERC). El motor
+// ya evalúa todo en Complex de punta a punta, así que multiplicar por esto es
+// una rotación genuina en el plano complejo — la operación que conecta
+// directamente con Euler (sin/cos/senh/cosh vía e^{i*theta}), sin reconstruir
+// nada del resto del árbol. Es holomorfa en theta (EXP y MUL lo son), así que
+// el gradiente complex-step de gradient_descent_constants la afina gratis, sin
+// ningún caso especial.
+static NodePtr make_phase_rotation_factor(std::mt19937& gen) {
+    double theta = std::uniform_real_distribution<double>(-PI_VAL, PI_VAL)(gen);
+    return make_unary(NodeType::EXP, make_binary(NodeType::MUL, make_const_i(), make_erc(theta)));
+}
+
+NodePtr tree_mutate_factor(const NodePtr& term, std::mt19937& gen, const PDEProblem& p) {
+    if (!term) return nullptr;
+    auto factors = extract_multiplicative_factors(term);
+    std::uniform_real_distribution<double> ud(0.0, 1.0);
+
+    if (factors.size() <= 1) {
+        // Agregar una rotación de fase es válido incluso si el término no es
+        // (todavía) un producto — es la forma más barata de empezar a explorar
+        // la dimensión de fase sin tocar nada de lo que ya había.
+        if (ud(gen) < 0.2) {
+            factors.push_back(make_phase_rotation_factor(gen));
+            return build_multiplicative_tree(factors)->simplify();
+        }
+        return tree_mutate_point(term, gen, p);
+    }
+
+    int type_mut = std::uniform_int_distribution<int>(0, 3)(gen);
+    if (type_mut == 0 && factors.size() > 1) {
+        int idx = std::uniform_int_distribution<int>(0, factors.size() - 1)(gen);
+        factors.erase(factors.begin() + idx);
+    } else if (type_mut == 1) {
+        factors.push_back(random_tree(2, gen, p));
+    } else if (type_mut == 3) {
+        factors.push_back(make_phase_rotation_factor(gen));
+    } else {
+        int idx = std::uniform_int_distribution<int>(0, factors.size() - 1)(gen);
+        // Igual que en tree_mutate: casi siempre mutación puntual suave dentro
+        // del factor elegido; regeneración total del factor sólo raramente.
+        if (ud(gen) < 0.15) {
+            factors[idx] = random_tree(2, gen, p);
+        } else {
+            factors[idx] = tree_mutate_point(factors[idx], gen, p);
+        }
+    }
+    return build_multiplicative_tree(factors)->simplify();
+}
+
+NodePtr tree_mutate(const NodePtr& t, std::mt19937& gen, const PDEProblem& p, double aggressiveness) {
     if (!t) return make_binary(NodeType::MUL, make_erc(1.0), random_tree(2, gen, p));
+    std::uniform_real_distribution<double> ud(0.0, 1.0);
+
+    // La mayoría de las mutaciones son un swap de NodeType dentro de la misma
+    // familia funcional (adaptación suave), no una regeneración total del árbol.
+    if (ud(gen) < 0.55) {
+        return tree_mutate_point(t, gen, p);
+    }
+
     auto terms = extract_additive_terms(t);
     if (!terms.empty()) {
         int type_mut = std::uniform_int_distribution<int>(0, 2)(gen);
@@ -804,7 +872,24 @@ NodePtr tree_mutate(const NodePtr& t, std::mt19937& gen, const PDEProblem& p) {
             terms.push_back(make_binary(NodeType::MUL, make_erc(1.0), random_tree(2, gen, p)));
         } else {
             int idx = std::uniform_int_distribution<int>(0, terms.size() - 1)(gen);
-            terms[idx] = make_binary(NodeType::MUL, make_erc(1.0), random_tree(2, gen, p));
+            // Reemplazo de término: la mayoría de las veces una mutación puntual
+            // suave dentro del propio término; con probabilidad escalada por
+            // `aggressiveness` (que baja con las generaciones pero nunca a 0 — ver
+            // MIN_AGGRESSIVENESS en make_offspring) se regenera el término entero
+            // desde cero. Es el único movimiento capaz de sacar a la población de
+            // una estructura mediocre encontrada temprano; con el multiplicador
+            // viejo (0.15) la probabilidad efectiva real era ~2%, insuficiente en
+            // la práctica (val_mse quedaba fijo desde gen 0 en varios PDEs).
+            double full_replace_prob = 0.6 * std::clamp(aggressiveness, 0.0, 1.0);
+            if (ud(gen) < full_replace_prob) {
+                terms[idx] = make_binary(NodeType::MUL, make_erc(1.0), random_tree(2, gen, p));
+            } else {
+                // tree_mutate_factor recombina a nivel de factor si el término es un
+                // producto/razón (ej. sinh(3x)/sinh(3)) y cae a mutación puntual si
+                // no hay nada que decomponer — generaliza el caso anterior sin
+                // perder ningún comportamiento existente.
+                terms[idx] = tree_mutate_factor(terms[idx], gen, p);
+            }
         }
         return build_additive_tree(terms)->simplify();
     }
@@ -818,9 +903,26 @@ std::pair<NodePtr, NodePtr> tree_crossover(const NodePtr& p1, const NodePtr& p2,
     if (!terms1.empty() && !terms2.empty()) {
         int idx1 = std::uniform_int_distribution<int>(0, terms1.size() - 1)(gen);
         int idx2 = std::uniform_int_distribution<int>(0, terms2.size() - 1)(gen);
-        NodePtr temp = std::move(terms1[idx1]);
-        terms1[idx1] = std::move(terms2[idx2]);
-        terms2[idx2] = std::move(temp);
+
+        // Si ambos términos elegidos son productos/razones (ej. sinh(3x)/sinh(3)),
+        // con alta probabilidad recombinar a nivel de FACTOR en vez de intercambiar
+        // el término entero — mismo espíritu que la mutación: no perder toda la
+        // estructura de un término que funcionaba por cambiarlo entero por uno del
+        // otro padre que puede no encajar en absoluto.
+        std::uniform_real_distribution<double> ud(0.0, 1.0);
+        auto factors1 = extract_multiplicative_factors(terms1[idx1]);
+        auto factors2 = extract_multiplicative_factors(terms2[idx2]);
+        if (factors1.size() > 1 && factors2.size() > 1 && ud(gen) < 0.5) {
+            int fidx1 = std::uniform_int_distribution<int>(0, factors1.size() - 1)(gen);
+            int fidx2 = std::uniform_int_distribution<int>(0, factors2.size() - 1)(gen);
+            std::swap(factors1[fidx1], factors2[fidx2]);
+            terms1[idx1] = build_multiplicative_tree(factors1)->simplify();
+            terms2[idx2] = build_multiplicative_tree(factors2)->simplify();
+        } else {
+            NodePtr temp = std::move(terms1[idx1]);
+            terms1[idx1] = std::move(terms2[idx2]);
+            terms2[idx2] = std::move(temp);
+        }
         return {build_additive_tree(terms1)->simplify(), build_additive_tree(terms2)->simplify()};
     }
     return {p1->clone(), p2->clone()};

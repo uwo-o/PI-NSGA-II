@@ -30,7 +30,7 @@ inline bool is_unary(NodeType t) {
            t == NodeType::SINH || t == NodeType::COSH ||
            t == NodeType::EXP  || t == NodeType::SQR  ||
            t == NodeType::LOG  || t == NodeType::TANH ||
-           t == NodeType::BESSEL_J || t == NodeType::GAMMA || t == NodeType::GAUSSIAN;
+           t == NodeType::GAUSSIAN;
 }
 inline bool is_constant(NodeType t) {
     return t == NodeType::ERC || t == NodeType::CONST_I || t == NodeType::CONST_PI || t == NodeType::CONST_E ||
@@ -267,9 +267,7 @@ NodePtr make_binary(NodeType op, NodePtr l, NodePtr r);
 NodePtr make_unary(NodeType op, NodePtr child);
 NodePtr random_tree(int max_depth, std::mt19937& gen, const PDEProblem& prob, bool force_terminal = false);
 NodePtr random_tree_special(int max_depth, std::mt19937& gen, const PDEProblem& prob, const PDEPriors& priors);
-NodePtr get_exact_solution_tree(const PDEProblem& prob);
-NodePtr remove_nested_polynomials(NodePtr node, bool inside_poly = false);
 std::pair<NodePtr, NodePtr> tree_crossover(const NodePtr& p1, const NodePtr& p2, std::mt19937& gen);
-NodePtr tree_mutate(const NodePtr& tree, std::mt19937& gen, const PDEProblem& prob);
+NodePtr tree_mutate(const NodePtr& tree, std::mt19937& gen, const PDEProblem& prob, double aggressiveness = 1.0);
+NodePtr tree_mutate_point(const NodePtr& tree, std::mt19937& gen, const PDEProblem& prob);
 void replace_node_at(NodePtr& current, int& target_idx, NodePtr& replacement);
-Complex fd_laplacian(const NodePtr& tree, double x, double y, int dim, double h = 1e-5);

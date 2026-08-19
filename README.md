@@ -1,16 +1,15 @@
-# PISR-MOEA/D: Physics-Informed Multi-Objective Symbolic Regression
+# PISR-NSGA-II: Physics-Informed Multi-Objective Symbolic Regression
 
-PISR-MOEA/D is an advanced technical framework for the **symbolic discovery of physical laws** governed by Ordinary and Partial Differential Equations (ODEs/PDEs). It integrates high-fidelity Automatic Differentiation (AD) with a bi-objective evolutionary engine based on MOEA/D to discover mathematically elegant, interpretable, and physically consistent models from collocation data.
+PISR-NSGA-II is an advanced technical framework for the **symbolic discovery of physical laws** governed by Ordinary and Partial Differential Equations (ODEs/PDEs). It integrates high-fidelity Automatic Differentiation (AD) with a multi-objective evolutionary engine based on classic NSGA-II to discover mathematically elegant, interpretable, and physically consistent models from collocation data.
 
-## Core Optimization Engine: Pure MOEA/D
+## Core Optimization Engine: NSGA-II
 
-PISR-MOEA/D stands out by employing a **Pure, Multi-Objective Evolutionary Algorithm based on Decomposition (MOEA/D)**, avoiding the traditional pitfalls of single-objective "weighted sum" approaches that require manual tuning of loss coefficients ($\lambda_{pde}, \lambda_{bc}$).
+PISR-NSGA-II employs the classic **Non-dominated Sorting Genetic Algorithm II (NSGA-II)**, avoiding the traditional pitfalls of single-objective "weighted sum" approaches that require manual tuning of loss coefficients ($\lambda_{pde}, \lambda_{bc}$). An earlier iteration explored a MOEA/D (Tchebycheff decomposition) engine, but empirical A/B comparison across the benchmark suite showed NSGA-II converging to equal or better results with a simpler, decomposition-free selection mechanism — decomposition's main strength (scaling to many objectives via pre-defined weight vectors) is not needed here, since the exact boundary ansatz collapses the boundary objective to zero for most PDEs, leaving an effectively 2-objective problem where NSGA-II's non-dominated sorting and crowding distance already excel.
 
-### Competitive Selection Strategy
-The framework utilizes Tchebycheff decomposition to handle multiple objectives efficiently:
-1.  **Tchebycheff Scalarization:** The problem is decomposed into multiple scalar sub-problems, uniformly distributed across the objective space. This ensures a perfectly uniform Pareto Front without artificial logarithmic distortions.
-2.  **Neighborhood Mating:** Individuals mate and compete locally with neighboring sub-problems, significantly improving search efficiency and preserving genetic diversity.
-3.  **Lexicographic Tie-Breaking:** To further combat bloat, our implementation uses tree complexity as a final tie-breaker between models with identical error metrics, favoring the most parsimonious analytical form.
+### Selection Strategy
+1.  **Non-dominated Sorting:** Individuals are ranked into Pareto fronts using Deb's constrained-domination rule (feasible dominates infeasible; among infeasible, lower constraint violation wins; among feasible, standard 3-objective Pareto dominance on domain residual, boundary residual, and tree size).
+2.  **Crowding Distance + Structural Diversity Bonus:** Within a front, individuals in sparser regions of objective space are preferred, with an additional bonus for underrepresented root node types — preserving structural diversity, not just numerical spread.
+3.  **Tournament Selection + Elitist Truncation:** Parents are chosen via tournament (rank, then crowding); the next generation combines parents and offspring (2N) and keeps the best N via front-by-front truncation, with tree size as the final tie-breaker (Occam's razor) when crowding ties.
 
 ## Key Algorithm Qualities
 
@@ -53,7 +52,7 @@ Strict physical and mathematical axioms are enforced via **Constraint-Domination
 
 ## Optimization Strategy
 
-1.  **Elite Gradient Refinement:** The **Top 20% (Rank-1)** of the population undergoes intensive local polishing in every generation using an **Adaptive Gradient Descent** algorithm. This evaluates exact gradients of the residual with respect to the ERC constants via finite differences, locking them to machine precision.
+1.  **Population-Wide Gradient Refinement:** Every individual in the population (not just the elite front) undergoes local polishing each generation using an **Adaptive Gradient Descent** algorithm. Gradients of the residual w.r.t. the ERC constants are computed via **complex-step differentiation** (perturbing each constant along the imaginary axis and reading `Im(f(c+ih))/h`) — exact to machine precision, no finite-difference truncation or cancellation error, and roughly half the tree evaluations of central differences. Falls back to finite differences only for the one PDE in the suite (Thomas-Fermi) whose residual formula is not holomorphic in the constants.
 2.  **Consensus-Based RAR:** Every 25 generations, a committee of elite and random individuals identifies regions of high collective residual. The training grid is updated by keeping **70% of stable points** and injecting **30% of new high-residual points**.
 3.  **Cross-Validation Early Stopping:** Discovery is only declared final if the total residual ($Dom + Bnd$) falls below $10^{-12}$ on both the training grid and an unseen validation grid.
 
@@ -69,12 +68,12 @@ cmake --build build --parallel $(nproc)
 ```
 
 ### Execution Flags and Parameters
-The `PISR-NSGA-II` binary provides granular control via command-line arguments:
+The `PISR-EMOAD` binary provides granular control via command-line arguments:
 
 | Flag | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
-| `--pop` | `int` | `150` | Population size for the evolutionary search. |
-| `--gen` | `int` | `300` | Maximum number of generations per run. |
+| `--pop` | `int` | `500` | Population size for the evolutionary search. |
+| `--gen` | `int` | `1000` | Maximum number of generations per run. |
 | `--runs` | `int` | `1` | Number of independent stochastic executions for statistical analysis. |
 | `--only <PDE>`| `string`| `(all)` | Target a specific PDE (e.g., `Airy_2D`, `Navier-Stokes_2D`). |
 | `--domain` | `int` | `500` | Initial number of collocation points in the domain ($X_\Omega$). |
@@ -97,8 +96,8 @@ The framework outputs journal-ready results:
 
 ```bash
 # Execute definitive 14-equation benchmark on 8 cores
-./build/PISR-NSGA-II --cores 8
+./build/PISR-EMOAD --cores 8
 
 # High-precision discovery on a specific complex PDE
-./build/PISR-NSGA-II --only Navier-Stokes-Unsteady_2D --pop 300 --gen 500 --stop 1e-13 --cores 8
+./build/PISR-EMOAD --only Navier-Stokes-Unsteady_2D --pop 300 --gen 500 --stop 1e-13 --cores 8
 ```

@@ -1,2 +1,0 @@
-run --only Airy_2D --test --cores 8
-bt

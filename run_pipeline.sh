@@ -10,23 +10,28 @@ cmake .. && make
 cd ..
 
 echo ">>> Step 1: Symbolic Benchmark"
-# ./build/PISR-NSGA-II "$@"
+./build/PISR-EMOAD "$@"
 
-echo ">>> Step 2: PINN Baseline"
-./.venv/bin/python3.12 pinn_baseline.py "$@"
+echo ">>> Step 2: SOTA Methods"
+cd sota 
+sh sota_benchmark.sh "$@"
+cd ..
 
-echo ">>> Step 3: Analysis and Plotting"
-./.venv/bin/python3 plot_pareto.py
-./.venv/bin/python3 plot_solutions.py
-./.venv/bin/python3 stats_analysis.py
-./.venv/bin/python3 plot_extra_report_figures.py
+echo ">>> Step 3: DeepXDE Baseline"
+./.venv/bin/python3.12 scripts/pinn_baseline.py --cores 8
 
-echo ">>> Step 4: Report Generation"
+echo ">>> Step 4: Analysis and Plotting"
+./.venv/bin/python3 scripts/plot_pareto.py
+./.venv/bin/python3 scripts/plot_solutions.py
+./.venv/bin/python3 scripts/stats_analysis.py
+./.venv/bin/python3 scripts/plot_extra_report_figures.py
+
+echo ">>> Step 5: Report Generation"
 ./.venv/bin/python3 report/generate_report.py
 ./.venv/bin/python3 report/generate_formulas_table.py
 
 
-echo ">>> Step 5: LaTeX Compilation"
+echo ">>> Step 6: LaTeX Compilation"
 cd report
 pdflatex -interaction=nonstopmode results.tex > /dev/null
 pdflatex -interaction=nonstopmode results.tex > /dev/null

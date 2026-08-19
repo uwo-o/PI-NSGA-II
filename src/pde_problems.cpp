@@ -125,11 +125,10 @@ Complex PDEProblem::pde_residual_ad(const AD& ad, double x, double y, double t) 
         }
         case PDE::THOMAS_FERMI: {
             double r = (dim == 1) ? std::abs(x) : std::sqrt(x*x + y*y);
-            // Reducimos epsilon para mayor rigor físico
             double eps = 1e-12;
             Complex base = ad.v;
-            if (base.real() < 0.0) return 1e6; // Penalización por solución negativa (no física en TF)
-            return laplacian - std::pow(base + eps, 1.5) / std::sqrt(r + eps);
+            // Usamos abs(base) para que la función sea diferenciable y no rompa el Gradient Descent
+            return laplacian - std::pow(std::abs(base.real()) + eps, 1.5) / std::sqrt(r + eps);
         }
         case PDE::BRATU: return laplacian + 2.0 * std::exp(u);
         case PDE::ALLEN_CAHN: return 0.01 * laplacian - (u*u*u - u);
@@ -276,6 +275,57 @@ PDEPriors probe_priors(const PDEProblem& prob) {
 
     // 6. Conservación (Divergencia)
     if (prob.type == PDE::NAVIER_STOKES || prob.type == PDE::NAVIER_STOKES_UNSTEADY) priors.is_conservative = true;
+
+    // 7. Invarianza Traslacional en t (autónomo en el tiempo)
+    if (prob.is_unsteady) {
+        Complex res_t_shift = prob.pde_residual_ad(dummy_ad, 1.0, 1.0, 1.0);
+        Complex res_t_base = prob.pde_residual_ad(dummy_ad, 1.0, 1.0, 0.0);
+        if (std::abs(res_t_base - res_t_shift) < 1e-9) priors.autonomous_t = true;
+    }
+
+    // 8. Simetría especular x <-> 1-x (y análoga en y) — la relevante para el
+    // dominio real [0,1], no x<->-x (fuera del dominio, ver punto 2). Sólo se
+    // marca si TANTO el operador COMO la condición de frontera (bc==exact para
+    // la mayoría de los PDEs) son invariantes ante la reflexión en VARIOS
+    // puntos (no uno solo: un único punto de prueba puede coincidir con un
+    // cero accidental de la fórmula — ej. sin(2*pi*y) se anula en y=0.5 — y dar
+    // un falso positivo). Se excluyen Navier-Stokes/Unsteady: su condición de
+    // frontera real es sobre función de corriente + derivadas de velocidad, no
+    // un simple valor Dirichlet, y su residuo aquí es un proxy simplificado que
+    // no depende explícitamente de x,y (siempre "simétrico" por construcción,
+    // no por física real) — comprobado empíricamente que producía falsos
+    // positivos.
+    if (prob.type != PDE::NAVIER_STOKES && prob.type != PDE::NAVIER_STOKES_UNSTEADY) {
+        bool op_mirror_x = true, bc_mirror_x = true;
+        for (double x0 : {0.15, 0.3, 0.42}) {
+            for (double yfix : {0.2, 0.55, 0.8}) {
+                Complex ra = prob.pde_residual_ad(dummy_ad, x0, yfix, 0.0);
+                Complex rb = prob.pde_residual_ad(dummy_ad, 1.0 - x0, yfix, 0.0);
+                if (std::abs(ra - rb) > 1e-9) { op_mirror_x = false; break; }
+                Complex b1 = prob.bc(x0, yfix, 0.0);
+                Complex b2 = prob.bc(1.0 - x0, yfix, 0.0);
+                if (std::abs(b1 - b2) > 1e-6) { bc_mirror_x = false; break; }
+            }
+            if (!op_mirror_x || !bc_mirror_x) break;
+        }
+        priors.mirror_symmetric_x = op_mirror_x && bc_mirror_x;
+
+        if (prob.dim == 2) {
+            bool op_mirror_y = true, bc_mirror_y = true;
+            for (double y0 : {0.15, 0.3, 0.42}) {
+                for (double xfix : {0.2, 0.55, 0.8}) {
+                    Complex ra = prob.pde_residual_ad(dummy_ad, xfix, y0, 0.0);
+                    Complex rb = prob.pde_residual_ad(dummy_ad, xfix, 1.0 - y0, 0.0);
+                    if (std::abs(ra - rb) > 1e-9) { op_mirror_y = false; break; }
+                    Complex b1 = prob.bc(xfix, y0, 0.0);
+                    Complex b2 = prob.bc(xfix, 1.0 - y0, 0.0);
+                    if (std::abs(b1 - b2) > 1e-6) { bc_mirror_y = false; break; }
+                }
+                if (!op_mirror_y || !bc_mirror_y) break;
+            }
+            priors.mirror_symmetric_y = op_mirror_y && bc_mirror_y;
+        }
+    }
 
     return priors;
 }

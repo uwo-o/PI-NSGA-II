@@ -2,7 +2,7 @@ import numpy as np
 from pysr import PySRRegressor
 import argparse
 
-def run_pysr_benchmark(data_path, pde_name):
+def run_pysr_benchmark(data_path, pde_name, run_id):
     """
     Runs PySR on the dataset to discover the analytical solution u(x,t).
     """
@@ -83,7 +83,7 @@ def run_pysr_benchmark(data_path, pde_name):
     df['u_approx'] = u_approx
     
     out_dir = os.path.dirname(os.path.abspath(__file__))
-    res_dir = os.path.join(out_dir, "..", "results")
+    res_dir = os.path.join(out_dir, "..", "results", f"run_{run_id}")
     os.makedirs(res_dir, exist_ok=True)
     
     grid_path = os.path.join(res_dir, f"grid_{pde_name}{suffix}_PySR.csv")
@@ -104,6 +104,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='PySR Baseline')
     parser.add_argument('--dataset', type=str, default='mock_data.csv', help='Path to numerical simulation data')
     parser.add_argument('--problem', type=str, default='Heat', help='Name of the PDE benchmark')
+    parser.add_argument('--run_id', type=int, default=1, help='Run ID for multiple runs')
     args = parser.parse_args()
     
-    run_pysr_benchmark(args.dataset, args.problem)
+    run_pysr_benchmark(args.dataset, args.problem, args.run_id)
