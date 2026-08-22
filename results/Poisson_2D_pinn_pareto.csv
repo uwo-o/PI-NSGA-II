@@ -1,2 +1,0 @@
-method,pde,dim,mse_domain,mse_boundary,rank
-PINN,Poisson,2,0.0000000003,0.0000000018,1

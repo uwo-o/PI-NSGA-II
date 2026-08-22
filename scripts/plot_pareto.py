@@ -55,40 +55,39 @@ def plot_pairwise_pareto(df):
         pde_label = f"{pde_name}_{dim}D"
         
         sub = df[(df["pde"] == pde_name) & (df["dim"] == dim)]
-        # Filter Rank 1 only for the plot
+        if sub.empty: continue
+        # 3 objetivos (mse_domain, mse_boundary, tree_size) -> los 3 pares
+        # posibles, uno por columna. No dominados (rank==1, el frente de
+        # Pareto real) en verde lima; dominados (rank>1) en gris de fondo
+        # para dar contexto de que tan lejos quedaron del frente.
+        dominated = sub[sub["rank"] != 1]
         pareto = sub[sub["rank"] == 1]
         if pareto.empty: continue
 
+        LIME = "#9ACD32"
+        GRAY = "#B0B0B0"
+
         fig, axes = plt.subplots(1, 3, figsize=(15, 4))
         plt.subplots_adjust(wspace=0.3)
-        
-        # 1. Domain MSE vs Boundary MSE (Log-Log)
-        ax = axes[0]
-        ax.scatter(pareto["mse_domain"], pareto["mse_boundary"], color="#2E86C1", alpha=0.7, edgecolors='k', s=40)
-        ax.set_xscale("log")
-        ax.set_yscale("log")
-        ax.set_xlabel("Domain MSE (Physics)")
-        ax.set_ylabel("Boundary MSE")
-        ax.set_title("Physics vs. Boundary")
-        ax.grid(True, which="both", ls="-", alpha=0.2)
 
-        # 2. Domain MSE vs Complexity (Log-Linear)
-        ax = axes[1]
-        ax.scatter(pareto["mse_domain"], pareto["tree_size"], color="#E67E22", alpha=0.7, edgecolors='k', s=40)
-        ax.set_xscale("log")
-        ax.set_xlabel("Domain MSE (Physics)")
-        ax.set_ylabel("Complexity (Nodes)")
-        ax.set_title("Physics vs. Complexity")
-        ax.grid(True, which="both", ls="-", alpha=0.2)
-
-        # 3. Boundary MSE vs Complexity (Log-Linear)
-        ax = axes[2]
-        ax.scatter(pareto["mse_boundary"], pareto["tree_size"], color="#27AE60", alpha=0.7, edgecolors='k', s=40)
-        ax.set_xscale("log")
-        ax.set_xlabel("Boundary MSE")
-        ax.set_ylabel("Complexity (Nodes)")
-        ax.set_title("Boundary vs. Complexity")
-        ax.grid(True, which="both", ls="-", alpha=0.2)
+        pairs = [
+            ("mse_domain", "mse_boundary", "Domain MSE (Physics)", "Boundary MSE", "Physics vs. Boundary", True, True),
+            ("mse_domain", "tree_size", "Domain MSE (Physics)", "Complexity (Nodes)", "Physics vs. Complexity", True, False),
+            ("mse_boundary", "tree_size", "Boundary MSE", "Complexity (Nodes)", "Boundary vs. Complexity", True, False),
+        ]
+        for ax, (xcol, ycol, xlabel, ylabel, title, xlog, ylog) in zip(axes, pairs):
+            if not dominated.empty:
+                ax.scatter(dominated[xcol], dominated[ycol], color=GRAY, alpha=0.5, s=25,
+                           label="Dominada", zorder=1)
+            ax.scatter(pareto[xcol], pareto[ycol], color=LIME, edgecolors='k', linewidths=0.5, s=45,
+                       label="No dominada (Frente)", zorder=2)
+            if xlog: ax.set_xscale("log")
+            if ylog: ax.set_yscale("log")
+            ax.set_xlabel(xlabel)
+            ax.set_ylabel(ylabel)
+            ax.set_title(title)
+            ax.grid(True, which="both", ls="-", alpha=0.2)
+        axes[0].legend(loc="best", framealpha=0.9)
 
         fig.suptitle(f"Pareto Trade-offs: {pde_label}", fontsize=12, fontweight='bold', y=1.05)
         

@@ -1,0 +1,2 @@
+method,pde,best_mse_domain,best_mse_boundary,mse_total,runtime_s
+PySR,Airy_2D,1.0096884891795172e-13,0.0,1.0096884891795172e-13,68.39162588119507

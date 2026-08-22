@@ -1,2 +1,0 @@
-method,pde,dim,mse_domain,mse_boundary,rank
-PINN,Sine-Gordon,2,0.0000000004,0.0000000026,1

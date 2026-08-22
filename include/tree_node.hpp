@@ -257,6 +257,65 @@ public:
     bool uses_variable(NodeType var_type) const override { return child && child->uses_variable(var_type); }
 };
 
+// ─── RotateNode: operador de "revolucion" ──────────────────────────────────
+// Evalua N en el dominio (x,y) rotado un angulo theta: N(x cos(theta) -
+// y sin(theta), x sin(theta) + y cos(theta)). Pensado para PDEs con
+// estructura rotacional (vortices, Navier-Stokes-Unsteady) — permite que la
+// busqueda descubra simetria/estructura que no es evidente en los ejes
+// originales sin tener que invertir nada (a diferencia de rotar el grafico
+// (x,u) en 1D, que puede volverse multivaluado).
+//
+// La primera derivada se transforma exacto via regla de la cadena:
+//   dN/dx = dN/dx' cos(theta) + dN/dy' sin(theta)
+//   dN/dy = -dN/dx' sin(theta) + dN/dy' cos(theta)
+// Para la segunda derivada, AD no rastrea la derivada cruzada d2N/dxdy, asi
+// que dxx/dyy individuales NO son exactos tras la rotacion — pero el
+// Laplaciano SI lo es (es invariante rotacional: dxx+dyy en (x,y) es
+// exactamente igual a dxx'+dyy' en (x',y')), y es la unica combinacion que
+// usan todos los residuos de la suite (ningun PDE usa dxx o dyy por
+// separado). Por eso alcanza con copiar dxx'->dxx, dyy'->dyy tal cual: su
+// suma sigue siendo correcta aunque el reparto individual no lo sea.
+class RotateNode final : public Node {
+public:
+    Complex theta;
+    NodePtr child;
+    RotateNode(Complex angle, NodePtr c) : theta(angle), child(std::move(c)) {}
+    NodeType get_type() const override { return NodeType::ROTATE; }
+    AD ad_eval(double x, double y, int dim = 2) const override;
+    AD ad_eval_t(double x, double y, double t, int dim = 2) const override;
+    Complex eval(double x, double y) const override;
+    Complex eval_t(double x, double y, double t) const override;
+    std::optional<Dimension> get_dimension(const PDEProblem& prob) const override { return child ? child->get_dimension(prob) : std::nullopt; }
+    bool is_unit_flexible() const override { return false; }
+    bool contains_erc() const override { return true; }
+    bool contains_variables() const override { return child && child->contains_variables(); }
+    int get_unary_depth() const override { return 1 + (child ? child->get_unary_depth() : 0); }
+    bool has_nested_trig() const override { return child && child->has_nested_trig(); }
+    bool contains_trig() const override { return child && child->contains_trig(); }
+    bool has_nested_polynomial() const override { return child && child->has_nested_polynomial(); }
+    bool contains_polynomial() const override { return child && child->contains_polynomial(); }
+    bool has_nested_exp() const override { return child && child->has_nested_exp(); }
+    bool contains_exp() const override { return child && child->contains_exp(); }
+    bool has_invalid_polynomial_degree() const override { return child && child->has_invalid_polynomial_degree(); }
+    bool is_strictly_affine() const override { return false; }
+    bool has_non_affine_trig_arg() const override { return child && child->has_non_affine_trig_arg(); }
+    NodePtr clone() const override { return std::make_unique<RotateNode>(theta, child ? child->clone() : nullptr); }
+    int count_nodes() const override { return 1 + (child ? child->count_nodes() : 0); }
+    int get_depth() const override { return 1 + (child ? child->get_depth() : 0); }
+    void mutate_erc(std::mt19937& gen, double sigma = Config::ERC_SIGMA) override;
+    void print(std::ostream& os) const override { os << "ROT[" << theta.real() << "]("; if (child) child->print(os); os << ")"; }
+    void print_latex(std::ostream& os) const override { print(os); }
+    void print_formal(std::ostream& os, int parent_prec = 0) const override;
+    void round_constants(double epsilon = 0.05) override;
+    NodePtr simplify() const override { return child ? std::make_unique<RotateNode>(theta, child->simplify()) : clone(); }
+    NodePtr prune_recursive(const PDEProblem& prob, const std::vector<Point>& dom, const std::vector<Point>& bnd, double original_mse, double tolerance) override {
+        if (child) child = child->prune_recursive(prob, dom, bnd, original_mse, tolerance);
+        return clone();
+    }
+    void collect_ercs(std::vector<Complex*>& ptrs) override { ptrs.push_back(&theta); if (child) child->collect_ercs(ptrs); }
+    bool uses_variable(NodeType var_type) const override { return child && child->uses_variable(var_type); }
+};
+
 NodePtr make_var(char v);
 NodePtr make_var_n();
 NodePtr make_erc(Complex val);
@@ -267,6 +326,15 @@ NodePtr make_binary(NodeType op, NodePtr l, NodePtr r);
 NodePtr make_unary(NodeType op, NodePtr child);
 NodePtr random_tree(int max_depth, std::mt19937& gen, const PDEProblem& prob, bool force_terminal = false);
 NodePtr random_tree_special(int max_depth, std::mt19937& gen, const PDEProblem& prob, const PDEPriors& priors);
+// Construye ADD(f(x), g(y)) [aditiva] o MUL(f(x), g(y)) [multiplicativa], con
+// f y g generados independientemente por random_tree y garantizados a
+// depender solo de su variable respectiva. Usado cuando probe_priors()
+// detecta que el operador de la EDP es consistente con esa forma — ver
+// PDEPriors::additive_separable / multiplicative_separable.
+NodePtr random_separable_tree(int max_depth, std::mt19937& gen, const PDEProblem& prob, bool multiplicative);
+// MUL(MUL(f(x),g(y)),h(t)) con f,g,h generados independientemente — ver
+// PDEPriors::triple_separable.
+NodePtr random_triple_separable_tree(int max_depth, std::mt19937& gen, const PDEProblem& prob);
 std::pair<NodePtr, NodePtr> tree_crossover(const NodePtr& p1, const NodePtr& p2, std::mt19937& gen);
 NodePtr tree_mutate(const NodePtr& tree, std::mt19937& gen, const PDEProblem& prob, double aggressiveness = 1.0);
 NodePtr tree_mutate_point(const NodePtr& tree, std::mt19937& gen, const PDEProblem& prob);

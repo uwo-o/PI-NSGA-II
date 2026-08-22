@@ -1,2 +1,0 @@
-method,pde,dim,mse_domain,mse_boundary,rank
-PINN,Allen-Cahn,2,0.7091496693,0.7902814437,1

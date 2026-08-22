@@ -68,7 +68,7 @@ cmake --build build --parallel $(nproc)
 ```
 
 ### Execution Flags and Parameters
-The `PISR-EMOAD` binary provides granular control via command-line arguments:
+The `PISR-NSGA-II` binary provides granular control via command-line arguments:
 
 | Flag | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
@@ -96,8 +96,8 @@ The framework outputs journal-ready results:
 
 ```bash
 # Execute definitive 14-equation benchmark on 8 cores
-./build/PISR-EMOAD --cores 8
+./build/PISR-NSGA-II --cores 8
 
 # High-precision discovery on a specific complex PDE
-./build/PISR-EMOAD --only Navier-Stokes-Unsteady_2D --pop 300 --gen 500 --stop 1e-13 --cores 8
+./build/PISR-NSGA-II --only Navier-Stokes-Unsteady_2D --pop 300 --gen 500 --stop 1e-13 --cores 8
 ```

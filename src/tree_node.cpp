@@ -2,6 +2,7 @@
 #include <iomanip>
 #include <algorithm>
 #include <sstream>
+#include <numeric>
 
 extern int last_special_choice;
 
@@ -366,18 +367,88 @@ NodePtr BinaryNode::simplify() const {
     auto sl = left->simplify(), sr = right->simplify();
     NodeType lt = sl->get_type(), rt = sr->get_type();
     if (is_constant(lt) && is_constant(rt)) { return make_erc(apply_binary(type, sl->eval_t(0,0,0), sr->eval_t(0,0,0))); }
+
+    // Distribucion (ley distributiva): A*(B+C) -> A*B + A*C, y su version SUB.
+    // Sin esto, un factor reconocible como el ansatz de frontera B(x)=x(x-1)
+    // multiplicando una suma nunca se "disuelve" en la expresion final — queda
+    // visible tal cual, aunque el resto se haya simplificado, delatando el
+    // mecanismo interno de busqueda en vez de una formula genuinamente
+    // reducida. Se re-simplifica el resultado para que la distribucion se
+    // encadene con las demas reglas (cancelacion, combinacion de terminos).
+    if (type == NodeType::MUL) {
+        if (rt == NodeType::ADD || rt == NodeType::SUB) {
+            auto* rb = dynamic_cast<const BinaryNode*>(sr.get());
+            return make_binary(rt,
+                make_binary(NodeType::MUL, sl->clone(), rb->left->clone()),
+                make_binary(NodeType::MUL, sl->clone(), rb->right->clone()))->simplify();
+        }
+        if (lt == NodeType::ADD || lt == NodeType::SUB) {
+            auto* lb = dynamic_cast<const BinaryNode*>(sl.get());
+            return make_binary(lt,
+                make_binary(NodeType::MUL, lb->left->clone(), sr->clone()),
+                make_binary(NodeType::MUL, lb->right->clone(), sr->clone()))->simplify();
+        }
+    }
+
     auto is_zero = [](double v) { return std::isfinite(v) && std::abs(v) < 1e-6; };
     auto is_one = [](double v) { return std::isfinite(v) && std::abs(v - 1.0) < 1e-6; };
     double lv_v = is_constant(lt) ? sl->eval_t(0,0,0).real() : NAN;
     double rv_v = is_constant(rt) ? sr->eval_t(0,0,0).real() : NAN;
+    // Deteccion numerica de cancelacion exacta (A + (-A) = 0, A - A = 0) para
+    // casos donde los dos subarboles son equivalentes pero no sintacticamente
+    // identicos (ej. "exp(-0.5x^2) + -exp(-0.5x^2)", frecuente tras mutacion/
+    // cruzamiento) — la comparacion por print_str() de abajo solo detecta
+    // duplicados textuales exactos, se le escapan estos casos. Se evalua en
+    // varios puntos no triviales; si la suma/resta es ~0 en todos, se asume
+    // cancelacion (no es una prueba formal, pero es la misma heuristica de
+    // sondeo numerico que ya usa probe_priors() para simetrias).
+    if ((type == NodeType::ADD || type == NodeType::SUB) && sl->contains_variables() && sr->contains_variables()) {
+        bool cancels = true;
+        for (double xp : {0.13, 0.37, 0.61, 0.89}) {
+            Complex a = sl->eval_t(xp, xp * 0.7, 0.0);
+            Complex b = sr->eval_t(xp, xp * 0.7, 0.0);
+            Complex combined = (type == NodeType::ADD) ? (a + b) : (a - b);
+            double scale = std::max({std::abs(a), std::abs(b), 1e-9});
+            if (!std::isfinite(combined.real()) || std::abs(combined) > 1e-6 * scale) { cancels = false; break; }
+        }
+        if (cancels) return make_erc(0.0);
+    }
+    // Combinacion de multiplos escalados del mismo sub-arbol: c1*X + c2*X ->
+    // (c1+c2)*X (generaliza el caso "X+X=2X" de abajo, que es el caso
+    // particular c1=c2=1). Sin esto, terminos como "0.7*sin(x) + 1.3*sin(x)"
+    // (tipicos tras mutacion/cruzamiento aditivo) quedaban sin fusionar.
+    if (type == NodeType::ADD || type == NodeType::SUB) {
+        auto extract_coef = [](const NodePtr& n) -> std::pair<double, const Node*> {
+            if (auto* bn = dynamic_cast<const BinaryNode*>(n.get())) {
+                if (bn->type == NodeType::MUL) {
+                    if (is_constant(bn->left->get_type())) return {bn->left->eval_t(0,0,0).real(), bn->right.get()};
+                    if (is_constant(bn->right->get_type())) return {bn->right->eval_t(0,0,0).real(), bn->left.get()};
+                }
+            }
+            return {1.0, n.get()};
+        };
+        auto [cl, bl] = extract_coef(sl);
+        auto [cr, br] = extract_coef(sr);
+        if (bl->contains_variables() && bl->print_str() == br->print_str()) {
+            double combined = (type == NodeType::ADD) ? (cl + cr) : (cl - cr);
+            if (is_zero(combined)) return make_erc(0.0);
+            NodePtr base = bl->clone();
+            if (is_one(combined)) return base;
+            if (std::abs(combined + 1.0) < 1e-6) return make_binary(NodeType::SUB, make_erc(0.0), std::move(base))->simplify();
+            return make_binary(NodeType::MUL, make_erc(combined), std::move(base));
+        }
+    }
     if (type == NodeType::ADD) {
         if (is_zero(lv_v)) return sr; if (is_zero(rv_v)) return sl;
-        if (sl->print_str() == sr->print_str()) return make_binary(NodeType::MUL, make_erc(2.0), std::move(sl));
     }
-    if (type == NodeType::SUB) { if (is_zero(rv_v)) return sl; if (sl->print_str() == sr->print_str()) return make_erc(0.0); }
+    if (type == NodeType::SUB) { if (is_zero(rv_v)) return sl; }
     if (type == NodeType::MUL) {
         if (is_zero(lv_v) || is_zero(rv_v)) return make_erc(0.0);
         if (is_one(lv_v)) return sr; if (is_one(rv_v)) return sl;
+        // X*X -> X^2: sin esto la distribucion de arriba (A*(B+C)) puede dejar
+        // productos como "x*x" sueltos en vez de la forma habitual x^2.
+        if (sl->contains_variables() && sl->print_str() == sr->print_str())
+            return make_binary(NodeType::POW, std::move(sl), make_erc(2.0));
     }
     if (type == NodeType::DIV) { if (is_zero(lv_v)) return make_erc(0.0); if (is_one(rv_v)) return sl; if (sl->print_str() == sr->print_str()) return make_erc(1.0); }
     if (type == NodeType::POW) {
@@ -386,6 +457,11 @@ NodePtr BinaryNode::simplify() const {
         if (is_zero(lv_v)) return make_erc(0.0);
         if (is_one(lv_v)) return make_erc(1.0);
     }
+    // Polinomio ortogonal de grado 0: por definicion, P_0(x)=H_0(x)=T_0(x)=
+    // L_0(x)=1 para las 4 familias (ver eval_poly_all) — es una constante que
+    // no depende en absoluto del argumento, asi que colapsa a 1 en vez de
+    // dejar el nodo (con el argumento adentro sin usar) para imprimir despues.
+    if (is_polynomial(type) && is_zero(rv_v)) return make_erc(1.0);
     return std::make_unique<BinaryNode>(type, std::move(sl), std::move(sr));
 }
 NodePtr BinaryNode::prune_recursive(const PDEProblem& p, const std::vector<Point>& d, const std::vector<Point>& b, double o, double t) {
@@ -397,6 +473,92 @@ int BinaryNode::get_unary_depth() const { return std::max(left ? left->get_unary
 int BinaryNode::get_depth() const { return 1 + std::max(left ? left->get_depth() : 0, right ? right->get_depth() : 0); }
 NodePtr BinaryNode::clone() const { return std::make_unique<BinaryNode>(type, left ? left->clone() : nullptr, right ? right->clone() : nullptr); }
 int BinaryNode::count_nodes() const { return 1 + (left ? left->count_nodes() : 0) + (right ? right->count_nodes() : 0); }
+
+// ─── RotateNode Implementation ("operador de revolucion") ────────────────────
+AD RotateNode::ad_eval(double x, double y, int dim) const { return ad_eval_t(x, y, 0.0, dim); }
+AD RotateNode::ad_eval_t(double x, double y, double t, int dim) const {
+    if (!child) return AD();
+    Complex c = std::cos(theta), s = std::sin(theta);
+    double xr = x * c.real() - y * s.real();
+    double yr = x * s.real() + y * c.real();
+    AD in = child->ad_eval_t(xr, yr, t, dim);
+    AD out;
+    out.v = in.v;
+    // Regla de la cadena exacta para 1er orden (ver comentario en el header).
+    out.dx = in.dx * c + in.dy * s;
+    out.dy = in.dx * (-s) + in.dy * c;
+    out.dt = in.dt;
+    // Laplaciano invariante rotacional: alcanza con copiar tal cual, ver header.
+    out.dxx = in.dxx;
+    out.dyy = in.dyy;
+    out.dtt = in.dtt;
+    return out;
+}
+Complex RotateNode::eval(double x, double y) const { return eval_t(x, y, 0.0); }
+Complex RotateNode::eval_t(double x, double y, double t) const {
+    if (!child) return 0.0;
+    Complex c = std::cos(theta), s = std::sin(theta);
+    double xr = x * c.real() - y * s.real();
+    double yr = x * s.real() + y * c.real();
+    return child->eval_t(xr, yr, t);
+}
+void RotateNode::mutate_erc(std::mt19937& gen, double sigma) {
+    std::normal_distribution<double> dist(0, sigma);
+    theta += Complex(dist(gen), 0);
+    // Normaliza a una vuelta completa [0, 2*PI) — sin esto, mutaciones
+    // sucesivas suman ruido sin limite y theta puede crecer indefinidamente
+    // (ej. 15.7 en vez de su equivalente 15.7 mod 2*PI = 3.13). Matematicamente
+    // cos/sin son periodicos asi que el resultado NUMERICO de la rotacion no
+    // cambia, pero el angulo mostrado y el espacio de busqueda quedan
+    // acotados a una vuelta real en vez de "enroscarse" sin limite.
+    const double TWO_PI = 2.0 * 3.14159265358979323846;
+    double t = std::fmod(theta.real(), TWO_PI);
+    if (t < 0.0) t += TWO_PI;
+    theta = Complex(t, theta.imag());
+    if (child) child->mutate_erc(gen, sigma);
+}
+void RotateNode::print_formal(std::ostream& os, int parent_prec) const {
+    // El subindice es el angulo de rotacion theta (en radianes) del dominio
+    // (x,y) -> (x cos(theta) - y sin(theta), x sin(theta) + y cos(theta)) —
+    // ver comentario en la declaracion de RotateNode. Antes se imprimia el
+    // double crudo sin etiqueta ("Rot_{2.35619}"), ambiguo. Ahora se rotula
+    // explicitamente "theta=" y, si el angulo es una fraccion simple de pi
+    // (comun tras redondeo/mutacion, ej. 3pi/4), se muestra como fraccion en
+    // vez de un decimal largo — mas legible para un angulo de rotacion.
+    double t = theta.real();
+    const double PI_L = 3.14159265358979323846;
+    os << "\\text{Rot}_{\\theta=";
+    bool printed_fraction = false;
+    for (int den = 1; den <= 12 && !printed_fraction; ++den) {
+        double num = t * den / PI_L;
+        double nearest = std::round(num);
+        if (std::abs(num - nearest) < 1e-3 && std::abs(nearest) > 0.5) {
+            int n = (int)nearest, d = den;
+            int g = std::gcd(std::abs(n), d);
+            if (g > 1) { n /= g; d /= g; }
+            if (d == 1) os << n << "\\pi";
+            else os << "\\frac{" << n << "\\pi}{" << d << "}";
+            printed_fraction = true;
+        }
+    }
+    if (!printed_fraction) os << std::round(t * 1000.0) / 1000.0;
+    os << "}\\left(";
+    if (child) child->print_formal(os, 0);
+    os << "\\right)";
+}
+void RotateNode::round_constants(double epsilon) {
+    // Normaliza a [0, 2*PI) primero — gradient_descent_constants (complex-step)
+    // actualiza theta directamente sin pasar por mutate_erc, asi que tambien
+    // puede desviarse fuera de una vuelta; esto se llama antes de imprimir asi
+    // que garantiza que lo mostrado siempre sea el angulo canonico.
+    const double TWO_PI = 2.0 * 3.14159265358979323846;
+    double r = std::fmod(theta.real(), TWO_PI);
+    if (r < 0.0) r += TWO_PI;
+    double nearest = std::round(r);
+    if (std::abs(r - nearest) < epsilon) r = nearest;
+    theta = Complex(r, theta.imag());
+    if (child) child->round_constants(epsilon);
+}
 
 // ─── SeriesNode Implementation ───────────────────────────────────────────────
 AD SeriesNode::ad_eval(double x, double y, int dim) const { return ad_eval_t(x, y, 0.0, dim); }
@@ -545,6 +707,43 @@ NodePtr random_tree_special(int depth, std::mt19937& gen, const PDEProblem& prob
     }
 }
 
+// Relabela in-place cada VAR_X del arbol al tipo de variable dado (usado para
+// convertir un sub-arbol generado "solo en x" en uno "solo en y" o "solo en
+// t", sin generar dos veces con logica separada).
+static void relabel_var_x(Node* n, NodeType target) {
+    if (!n) return;
+    if (auto* tn = dynamic_cast<TerminalNode*>(n)) { if (tn->type == NodeType::VAR_X) tn->type = target; return; }
+    if (auto* un = dynamic_cast<UnaryNode*>(n)) { relabel_var_x(un->child.get(), target); return; }
+    if (auto* bn = dynamic_cast<BinaryNode*>(n)) { relabel_var_x(bn->left.get(), target); relabel_var_x(bn->right.get(), target); return; }
+    if (auto* sn = dynamic_cast<SeriesNode*>(n)) { relabel_var_x(sn->child.get(), target); return; }
+    if (auto* rn = dynamic_cast<RotateNode*>(n)) { relabel_var_x(rn->child.get(), target); return; }
+}
+
+NodePtr random_separable_tree(int depth, std::mt19937& gen, const PDEProblem& prob, bool multiplicative) {
+    // prob1d fuerza a random_tree a nunca elegir VAR_Y ni VAR_T (dim=1,
+    // is_unsteady=false) — asi fx queda garantizado "solo en x". fy se genera
+    // igual (tambien solo en x) y despues se relabela x->y.
+    PDEProblem prob1d = prob;
+    prob1d.dim = 1;
+    prob1d.is_unsteady = false;
+    NodePtr fx = random_tree(depth, gen, prob1d);
+    NodePtr fy = random_tree(depth, gen, prob1d);
+    relabel_var_x(fy.get(), NodeType::VAR_Y);
+    return make_binary(multiplicative ? NodeType::MUL : NodeType::ADD, std::move(fx), std::move(fy));
+}
+
+NodePtr random_triple_separable_tree(int depth, std::mt19937& gen, const PDEProblem& prob) {
+    PDEProblem prob1d = prob;
+    prob1d.dim = 1;
+    prob1d.is_unsteady = false;
+    NodePtr fx = random_tree(depth, gen, prob1d);
+    NodePtr fy = random_tree(depth, gen, prob1d);
+    NodePtr ft = random_tree(depth, gen, prob1d);
+    relabel_var_x(fy.get(), NodeType::VAR_Y);
+    relabel_var_x(ft.get(), NodeType::VAR_T);
+    return make_binary(NodeType::MUL, make_binary(NodeType::MUL, std::move(fx), std::move(fy)), std::move(ft));
+}
+
 static bool is_v(const Node* n, double target) {
     if (!n || n->contains_variables()) return false;
     return std::abs(n->eval_t(0,0,0).real() - target) < 1e-6;
@@ -552,31 +751,114 @@ static bool is_v(const Node* n, double target) {
 
 void TerminalNode::print_formal(std::ostream& os, int parent_prec) const { print_latex(os); }
 void UnaryNode::print_formal(std::ostream& os, int parent_prec) const {
-    if (type == NodeType::SQR) { bool need_paren = (parent_prec > 2); if (need_paren) os << "("; child->print_formal(os, 3); os << "^2"; if (need_paren) os << ")"; }
-    else { print_latex(os); }
+    // "^{2}" con llaves (no "^2" pelado): si este SQR queda anidado como base
+    // de un POW exterior (ej. POW(SQR(x),2)), el POW imprime "^{" + exp + "}"
+    // a continuacion — sin llaves aca el resultado era "x^2^2", doble
+    // superindice invalido en LaTeX ("! Double superscript.").
+    if (type == NodeType::SQR) { bool need_paren = (parent_prec > 2); if (need_paren) os << "("; child->print_formal(os, 3); os << "^{2}"; if (need_paren) os << ")"; }
+    else {
+        // Antes: cualquier tipo unario que no fuera SQR caia directo a
+        // print_latex() — una funcion COMPLETAMENTE DISTINTA que usa su
+        // propia recursion (print_latex de los hijos, no print_formal), asi
+        // que TODO lo que quedara anidado dentro de un exp/sin/cos/log/tanh/
+        // sinh/cosh/gaussian se renderizaba con el motor viejo sin ninguno de
+        // los fixes de esta sesion (parentesis, "^2" sin llaves para SQR
+        // dentro de print_latex especificamente, fusion de signos, etc.) — la
+        // causa real del "Double superscript" en formulas con exp(...) por
+        // dentro. Ahora se llama print_formal recursivamente igual que los
+        // demas tipos, para que las mismas reglas apliquen sin importar que
+        // funcion envuelva al subarbol.
+        if (type == NodeType::SIN) os << "\\sin(";
+        else if (type == NodeType::COS) os << "\\cos(";
+        else if (type == NodeType::EXP) os << "\\exp(";
+        else if (type == NodeType::GAUSSIAN) os << "\\exp(-0.5 ";
+        else if (type == NodeType::TANH) os << "\\tanh(";
+        else if (type == NodeType::LOG) os << "\\log(";
+        else if (type == NodeType::SINH) os << "\\sinh(";
+        else if (type == NodeType::COSH) os << "\\cosh(";
+        else os << "u(";
+        if (type == NodeType::GAUSSIAN) {
+            // GAUSSIAN eleva su hijo al cuadrado por definicion (exp(-0.5*hijo^2)).
+            // Si el hijo ya termina en su propio superindice (ej. es un SQR,
+            // "x^{2}"), pegarle "^{2}" directo da "x^{2}^{2}" (doble
+            // superindice invalido). Envolver el hijo entre llaves es siempre
+            // valido en LaTeX sin importar que forma tenga adentro.
+            os << "{"; if (child) child->print_formal(os, 0); os << "}^{2}";
+        } else {
+            if (child) child->print_formal(os, 0);
+        }
+        os << ")";
+    }
 }
 void BinaryNode::print_formal(std::ostream& os, int parent_prec) const {
     if (type == NodeType::ADD) { if (is_v(left.get(), 0.0)) { right->print_formal(os, parent_prec); return; } if (is_v(right.get(), 0.0)) { left->print_formal(os, parent_prec); return; } }
-    if (type == NodeType::SUB) { if (is_v(right.get(), 0.0)) { left->print_formal(os, parent_prec); return; } }
+    if (type == NodeType::SUB) {
+        if (is_v(right.get(), 0.0)) { left->print_formal(os, parent_prec); return; }
+        if (is_v(left.get(), 0.0)) { os << "-"; right->print_formal(os, 2); return; }
+    }
     if (type == NodeType::MUL) {
+        if (is_v(left.get(), 0.0) || is_v(right.get(), 0.0)) { os << "0"; return; }
         if (is_v(left.get(), 1.0)) { right->print_formal(os, parent_prec); return; } if (is_v(right.get(), 1.0)) { left->print_formal(os, parent_prec); return; }
         if (is_v(left.get(), -1.0)) { os << "-"; right->print_formal(os, 2); return; } if (is_v(right.get(), -1.0)) { os << "-"; left->print_formal(os, 2); return; }
     }
     int own_prec = (type == NodeType::MUL || type == NodeType::DIV) ? 1 : ((type == NodeType::POW) ? 2 : ((type >= NodeType::LEGENDRE && type <= NodeType::LAGUERRE) ? 3 : 0));
     bool need_paren = (own_prec < parent_prec); if (need_paren) os << "(";
     if (type == NodeType::DIV) { os << "\\frac{"; left->print_formal(os, 0); os << "}{"; right->print_formal(os, 0); os << "}"; }
-    else if (type == NodeType::POW) { left->print_formal(os, 2); os << "^{"; right->print_formal(os, 0); os << "}"; }
+    else if (type == NodeType::POW) {
+        // Si la base ya termina en su propio superindice (POW o SQR anidado,
+        // ej. POW(SQR(x),2)), pasar parent_prec=2 (igual a la propia
+        // precedencia de POW) NO agrega parentesis porque el chequeo usa ">"
+        // estricto — el resultado queda "x^{2}^{2}", LaTeX no admite dos
+        // superindices consecutivos sin agrupar ("Double superscript"). Se
+        // envuelve la base explicitamente en esos casos, sin tocar el umbral
+        // general de parent_prec (que podria agregar parentesis de mas en
+        // otros contextos).
+        bool base_is_pow = (left->get_type() == NodeType::POW || left->get_type() == NodeType::SQR);
+        if (base_is_pow) os << "{";
+        left->print_formal(os, 2);
+        if (base_is_pow) os << "}";
+        os << "^{"; right->print_formal(os, 0); os << "}";
+    }
     else if (type >= NodeType::LEGENDRE && type <= NodeType::LAGUERRE) {
         os << (type == NodeType::LEGENDRE ? "P_" : (type == NodeType::HERMITE ? "H_" : (type == NodeType::CHEBYSHEV ? "T_" : "L_")));
-        right->print_formal(os, 3); os << "("; left->print_formal(os, 0); os << ")";
+        // El grado se imprime como entero limpio (nunca "-1.000" o "3.000")
+        // acotado al mismo rango [0,10] que ya usa la evaluacion (eval_poly_all
+        // via apply_binary/apply_binary_ad) — asi lo mostrado siempre coincide
+        // con lo que realmente se calcula, incluso si el nodo derecho no paso
+        // por round_constants (ej. constante recien mutada, no pulida todavia).
+        int deg = std::clamp((int)std::round(right->eval_t(0,0,0).real()), 0, 10);
+        os << deg; os << "("; left->print_formal(os, 0); os << ")";
+    } else if (type == NodeType::ADD) {
+        // Si el lado derecho imprime con signo negativo al frente (ej. viene de
+        // MUL(-1,X) que no calzo ninguno de los atajos de arriba, u otra forma
+        // negativa), se fusiona en "A - X" en vez de "A + -X".
+        left->print_formal(os, own_prec);
+        std::ostringstream rhs; right->print_formal(rhs, own_prec);
+        std::string rs = rhs.str();
+        if (!rs.empty() && rs[0] == '-') { os << " - " << rs.substr(1); }
+        else { os << " + " << rs; }
+    } else if (type == NodeType::MUL) {
+        left->print_formal(os, own_prec);
+        // Espacio ambiguo si el lado derecho empieza en '-' (ej. "H(x) -3.871"
+        // se lee como resta aunque sea multiplicacion por -3.871) — se usa
+        // \cdot explicito en ese caso para desambiguar; simple yuxtaposicion
+        // (mas legible) en el resto.
+        std::ostringstream rhs; right->print_formal(rhs, own_prec);
+        std::string rs = rhs.str();
+        os << (!rs.empty() && rs[0] == '-' ? " \\cdot " : " ") << rs;
     } else {
         left->print_formal(os, own_prec);
-        if (type == NodeType::ADD) os << " + "; else if (type == NodeType::SUB) os << " - "; else if (type == NodeType::MUL) os << " "; 
+        if (type == NodeType::SUB) os << " - ";
         right->print_formal(os, own_prec);
     }
     if (need_paren) os << ")";
 }
-void SeriesNode::print_formal(std::ostream& os, int parent_prec) const { print_latex(os); }
+void SeriesNode::print_formal(std::ostream& os, int parent_prec) const {
+    // Mismo motivo que el fix de UnaryNode::print_formal: llamar print_latex()
+    // aca bypasea print_formal (y sus fixes) para todo lo anidado adentro.
+    os << "\\sum_{n=1}^{" << n_terms << "} C_n ";
+    if (child) child->print_formal(os, 3);
+}
 
 void TerminalNode::round_constants(double epsilon) {
     if (type == NodeType::ERC) { double r = erc_val.real(); double nearest = std::round(r); if (std::abs(r - nearest) < epsilon) erc_val = Complex(nearest, erc_val.imag()); }
@@ -586,9 +868,15 @@ void BinaryNode::round_constants(double epsilon) {
     if (left) left->round_constants(epsilon); 
     if (right) {
         if (is_polynomial(type)) {
-            // Snapping agresivo para el grado del polinomio (siempre entero)
+            // Snapping agresivo para el grado del polinomio (siempre entero, y
+            // acotado a [0,10] — el mismo rango que ya usa apply_binary/
+            // apply_binary_ad al evaluar (eval_poly_all clampea ahi, pero antes
+            // esto no clampeaba aca, asi que el grado ALMACENADO podia quedar
+            // negativo o fuera de rango — ej. -1.3 -> -1 — y se imprimia tal
+            // cual ("H_-1.000(x)"), sin corresponder a lo que realmente se
+            // evaluaba).
             double r = right->eval_t(0,0,0).real();
-            double nearest = std::round(r);
+            double nearest = std::clamp(std::round(r), 0.0, 10.0);
             // Reemplazamos el nodo derecho por un ERC entero exacto
             right = make_erc(Complex(nearest, 0.0));
         } else {
@@ -855,6 +1143,23 @@ NodePtr tree_mutate_factor(const NodePtr& term, std::mt19937& gen, const PDEProb
 NodePtr tree_mutate(const NodePtr& t, std::mt19937& gen, const PDEProblem& p, double aggressiveness) {
     if (!t) return make_binary(NodeType::MUL, make_erc(1.0), random_tree(2, gen, p));
     std::uniform_real_distribution<double> ud(0.0, 1.0);
+
+    // Operador de "revolucion": envuelve el arbol entero para que se evalue en
+    // el dominio (x,y) rotado un angulo aleatorio, en vez de tocar su
+    // estructura — util para PDEs con simetria rotacional latente (vortices)
+    // que no es evidente en los ejes originales (motivado por Navier-Stokes-
+    // Unsteady). Solo tiene sentido en 2D (rota x,y); si ya esta envuelto en
+    // un RotateNode, con la misma probabilidad se lo quita en vez de anidar
+    // otro, para no acumular rotaciones sin limite.
+    if (p.dim == 2 && ud(gen) < 0.05) {
+        if (t->get_type() == NodeType::ROTATE) {
+            auto* rn = dynamic_cast<RotateNode*>(t.get());
+            if (rn && rn->child) return rn->child->clone();
+        } else {
+            double theta = std::uniform_real_distribution<double>(-PI_VAL, PI_VAL)(gen);
+            return std::make_unique<RotateNode>(Complex(theta, 0.0), t->clone());
+        }
+    }
 
     // La mayoría de las mutaciones son un swap de NodeType dentro de la misma
     // familia funcional (adaptación suave), no una regeneración total del árbol.

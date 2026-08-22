@@ -10,7 +10,7 @@ cmake .. && make
 cd ..
 
 echo ">>> Step 1: Symbolic Benchmark"
-./build/PISR-EMOAD "$@"
+./build/PISR-NSGA-II "$@"
 
 echo ">>> Step 2: SOTA Methods"
 cd sota 

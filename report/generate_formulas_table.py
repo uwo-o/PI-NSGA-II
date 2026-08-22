@@ -37,8 +37,15 @@ def main():
         ("Fisher", 2): r"\text{Numerical (Ground Truth)}",
         ("Duffing", 1): r"\text{Numerical (Ground Truth)}",
         ("Duffing", 2): r"\text{Numerical (Ground Truth)}",
-        ("Thomas-Fermi", 1): r"\text{Numerical (Ground Truth)}",
-        ("Thomas-Fermi", 2): r"\text{Numerical (Ground Truth)}",
+        # La ecuacion de Thomas-Fermi real (u''=u^{1.5}/\sqrt{x}) no tiene solucion
+        # cerrada conocida (por eso se resuelve por shooting/RK4 para la verdad
+        # numerica) — esto es solo la funcion usada como ancla de frontera/bc,
+        # no la solucion exacta de la EDO no lineal.
+        ("Thomas-Fermi", 1): r"\frac{1}{x+0.5} \; \text{(ancla de frontera, no exacta — ver verdad numerica)}",
+        ("Thomas-Fermi", 2): r"\frac{1}{x+y+0.5} \; \text{(ancla de frontera, no exacta — ver verdad numerica)}",
+        ("Laplace", 1): r"x",
+        ("Poisson", 1): r"\sin(\pi x)",
+        ("HarmonicOscillator", 1): r"e^{-x^2/2}",
         ("Navier-Stokes", 2): r"y - \frac{e^{\lambda x}}{2 \pi \text{Re}} \sin(2 \pi y)",
         ("Navier-Stokes-Unsteady", 2): r"\sin(\pi x) \sin(\pi y) e^{-\lambda t}",
         ("Lane-Emden", 1): r"1 - x^2/6",
@@ -60,6 +67,7 @@ def main():
     ]
     
     pde_list = [
+        "Laplace", "Poisson", "HarmonicOscillator",
         "Airy", "Fisher", "Duffing", "Thomas-Fermi",
         "Navier-Stokes", "Navier-Stokes-Unsteady",
         "Lane-Emden", "Troesch", "Ginzburg-Landau", "Painleve-I"
@@ -72,8 +80,17 @@ def main():
     }
     def get_sota_formula(pde, d, method):
         prefix = "pysr" if method == "PySR" else "sindy"
-        # Now logs are named like pysr_Airy_1D.log
-        log_path = os.path.join(ROOT_DIR, "sota", "results", f"{prefix}_{pde}_{d}D.log")
+        # sota_benchmark.sh guarda "{prefix}_{pde}_{d}D_run{N}.log" (con
+        # sufijo de corrida) — antes esto buscaba sin el sufijo y nunca
+        # encontraba nada, dejando la tabla vacia aunque el script sota si
+        # habia corrido. Se prueban ambos patrones (con y sin sufijo _run1)
+        # por compatibilidad con logs viejos generados a mano.
+        base = os.path.join(ROOT_DIR, "sota", "results", f"{prefix}_{pde}_{d}D")
+        log_path = base + ".log"
+        if not os.path.exists(log_path):
+            import glob as _glob
+            candidates = sorted(_glob.glob(base + "_run*.log"))
+            log_path = candidates[-1] if candidates else log_path
         if not os.path.exists(log_path): return "---"
         
         with open(log_path, "r") as f:
@@ -100,14 +117,21 @@ def main():
     for pde in pde_list:
         for d in dims:
             if pde in ["Navier-Stokes", "Navier-Stokes-Unsteady"] and d == 1: continue
-            if pde in ["Lane-Emden", "Troesch", "Ginzburg-Landau", "Painleve-I"] and d == 2: continue
+            if pde in ["Lane-Emden", "Troesch", "Ginzburg-Landau", "Painleve-I",
+                       "Laplace", "Poisson", "HarmonicOscillator"] and d == 2: continue
             p_pi = get_formula(pde, d, "PISR-EMOAD")
             ex_eq = exacts.get((pde, d), "N/A")
             
             p_pysr = get_sota_formula(pde, d, "PySR")
-            lines.append(rf"    \multirow{{3}}{{*}}{{{pde} ({d}D)}}")
+            # PySINDy solo corre en 1D (ver sota/run_pysindy.py: reformula el
+            # BVP como sistema u'=v, v'=f(u,v) — no aplica limpio a 2D).
+            p_sindy = get_sota_formula(pde, d, "PySINDy") if d == 1 else None
+            n_rows = 4 if p_sindy else 3
+            lines.append(rf"    \multirow{{{n_rows}}}{{*}}{{{pde} ({d}D)}}")
             lines.append(rf"    & PISR-NSGA-II & ${p_pi}$ \\")
             lines.append(rf"    & PySR & {p_pysr} \\")
+            if p_sindy:
+                lines.append(rf"    & PySINDy & {p_sindy} \\")
             lines.append(rf"    & \textbf{{Exact}} & $\mathbf{{{ex_eq}}}$ \\")
             lines.append(r"    \midrule")
             

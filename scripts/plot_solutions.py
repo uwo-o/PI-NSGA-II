@@ -27,8 +27,9 @@ FIGS_DIR    = os.path.join(BASE_DIR, "report", "figures")
 os.makedirs(FIGS_DIR, exist_ok=True)
 
 PDE_ORDER = [
+    "Laplace", "Poisson", "HarmonicOscillator",
     "Airy", "Fisher", "Duffing", "Thomas-Fermi",
-    "Navier-Stokes", "Navier-Stokes-Unsteady", 
+    "Navier-Stokes", "Navier-Stokes-Unsteady",
     "Lane-Emden", "Troesch", "Ginzburg-Landau", "Painleve-I"
 ]
 
@@ -73,7 +74,7 @@ def truth_label(pde):
     return "Numerical Truth" if pde in NUMERICAL_TRUTH else "Analytical"
 
 # ─── 1D ────────────────────────────────────────────────────────────────────────
-def plot_1d(pde, df_pi, df_pn=None, df_pysr=None):
+def plot_1d(pde, df_pi, df_pn=None, df_pysr=None, df_sindy=None):
     fig = plt.figure(figsize=(14, 12), layout="constrained")
     fig.suptitle(PDE_LABELS.get(pde, pde) + "  —  1D Analysis", fontweight="bold")
     
@@ -105,6 +106,12 @@ def plot_1d(pde, df_pi, df_pn=None, df_pysr=None):
         ax_sol.plot(pysr_x, df_pysr["u_approx"], "c:", lw=2.0, label="PySR", zorder=5)
         err_pysr = np.abs(df_pysr["u_exact"].values - df_pysr["u_approx"].values)
         ax_err.plot(pysr_x, np.clip(err_pysr, 1e-32, None), "c-", lw=1.5, label="Error PySR")
+
+    if df_sindy is not None:
+        sindy_x = df_sindy["x"] if "x" in df_sindy.columns else df_sindy["t"]
+        ax_sol.plot(sindy_x, df_sindy["u_approx"], "m--", lw=2.0, label="PySINDy", zorder=4)
+        err_sindy = np.abs(df_sindy["u_exact"].values - df_sindy["u_approx"].values)
+        ax_err.plot(sindy_x, np.clip(err_sindy, 1e-32, None), "m-", lw=1.5, label="Error PySINDy")
 
     ax_sol.set_ylabel("u(x)", labelpad=15)
     ax_sol.legend(frameon=True, loc="best")
@@ -186,18 +193,20 @@ def plot_equation(pde, dim):
     path_pi = find_file(f"grid_{pde}{suffix}_PISR-EMOAD.csv")
     path_pn = find_file(f"grid_{pde}{suffix}_DeepXDE.csv") or find_file(f"grid_{pde}{suffix}_PINN.csv")
     path_pysr = find_file(f"grid_{pde}{suffix}_PySR.csv")
-    
+    path_sindy = find_file(f"grid_{pde}{suffix}_PySINDy.csv")  # solo existe en 1D
+
     if not path_pi: return
     df_pi = pd.read_csv(path_pi)
     df_pn = pd.read_csv(path_pn) if path_pn else None
     df_pysr = pd.read_csv(path_pysr) if path_pysr else None
-    
-    if dim == 1: plot_1d(pde, df_pi, df_pn, df_pysr)
+    df_sindy = pd.read_csv(path_sindy) if path_sindy else None
+
+    if dim == 1: plot_1d(pde, df_pi, df_pn, df_pysr, df_sindy)
     else: plot_2d(pde, df_pi, df_pn, df_pysr)
 
 def main():
     skips_1d = {"NonlinearPoisson", "Liouville", "Sine-Gordon", "Navier-Stokes", "Navier-Stokes-Unsteady", "Bratu", "Allen-Cahn"}
-    skips_2d = {"Lane-Emden"}
+    skips_2d = {"Lane-Emden", "Laplace", "Poisson", "HarmonicOscillator"}
     for pde in PDE_ORDER:
         if pde not in skips_1d: plot_equation(pde, 1)
         if pde not in skips_2d: plot_equation(pde, 2)

@@ -18,6 +18,7 @@ FIGS_DIR    = os.path.join(REPORT_DIR, "figures")
 
 # Ecuaciones base (en orden de la tabla)
 PDE_BASE_NAMES = [
+    "Laplace", "Poisson", "HarmonicOscillator",
     "Airy", "Fisher", "Duffing", "Thomas-Fermi",
     "Navier-Stokes", "Navier-Stokes-Unsteady",
     "Lane-Emden", "Troesch", "Ginzburg-Landau", "Painleve-I"
@@ -27,7 +28,7 @@ DIMS = [1, 2]
 # PDEs que solo existen en 2D
 ONLY_2D = {"Navier-Stokes", "Navier-Stokes-Unsteady"}
 # PDEs que solo existen en 1D
-ONLY_1D = {"Lane-Emden", "Troesch", "Ginzburg-Landau", "Painleve-I"}
+ONLY_1D = {"Lane-Emden", "Troesch", "Ginzburg-Landau", "Painleve-I", "Laplace", "Poisson", "HarmonicOscillator"}
 
 os.makedirs(TABLES_DIR, exist_ok=True)
 os.makedirs(FIGS_DIR,   exist_ok=True)
@@ -392,22 +393,6 @@ def make_latex_report():
         r"\author{Scientific Benchmark Report}",
         r"\maketitle",
         r"",
-        r"% ─── ALGORITHM OVERVIEW ────────────────────────────────────────────────────",
-        r"\section{Algorithm Overview}",
-        r"PISR-NSGA-II discovers closed-form symbolic solutions to ODEs/PDEs using classic NSGA-II (non-dominated sorting, crowding distance with a structural-diversity bonus, tournament selection, elitist truncation) over three objectives: domain residual, boundary residual, and tree size. No labeled solution data is used — only collocation points where the governing equation's residual is evaluated via exact automatic differentiation.",
-        r"",
-        r"\subsection{Exact Boundary Ansatz}",
-        r"For Dirichlet boundary conditions, the candidate is not evaluated directly: the tree $N(x)$ (or $N(x,y)$) is composed as $U = L + B \cdot N$, where $L$ interpolates the boundary values exactly (linear in 1D, transfinite/Coons-patch interpolation in 2D) and $B$ vanishes identically on the boundary. This locks the boundary residual to zero by construction for every 1D problem and every 2D problem with simple Dirichlet conditions, leaving boundary error out of the search entirely. Problems with more complex boundary conditions (e.g. stream-function/velocity constraints in Navier-Stokes) fall back to a soft penalty term.",
-        r"",
-        r"\subsection{Structural Search Operators}",
-        r"Mutation and crossover operate on the tree's additive-term decomposition (splitting a sum into independent summands) and, within each term, its multiplicative-factor decomposition (splitting a product/ratio into factors). Both levels support adding, deleting, or replacing a term/factor, and a smooth point-mutation that swaps a node for another in the same functional family (e.g. $\sin \leftrightarrow \cos \leftrightarrow \exp$ via Euler's formula) rather than an unrelated one — reducing destructive jumps between generations. A dedicated phase-rotation factor $e^{i\theta}$ (evolvable $\theta$) lets the search explore complex-plane rotations directly, exploiting the fact that the evaluation engine is complex-valued end to end.",
-        r"",
-        r"\subsection{Constant Optimization}",
-        r"Every individual (not only the elite front) is locally polished each generation via adaptive gradient descent. Gradients of the residual with respect to each ERC constant are computed by complex-step differentiation — perturbing the constant along the imaginary axis and reading $\mathrm{Im}(f(c+ih))/h$ — which is exact to machine precision with no finite-difference truncation or cancellation error, at roughly half the tree evaluations of central differences. The one PDE in the benchmark suite whose residual is not holomorphic in its constants (Thomas-Fermi) falls back to finite differences.",
-        r"",
-        r"\subsection{Robustness}",
-        r"Per-point squared residuals are capped before averaging into the domain loss, preventing a single outlier point (e.g. near a PDE singularity) from dominating the fitness signal and destabilizing selection. The training collocation batch is a large, stable subset of the domain, resampled only periodically rather than every generation, so that improvement between generations reflects genuine progress rather than sampling noise.",
-        r"",
         r"% ─── METRICS ───────────────────────────────────────────────────────────────",
         r"\section{Performance Metrics}",
         r"\input{tables/global_comparison.tex}",
@@ -416,11 +401,6 @@ def make_latex_report():
         r"",
         r"% ─── DATA EFFICIENCY ───────────────────────────────────────────────────────",
         r"\section{Data Efficiency vs. State-of-the-Art}",
-        r"Unlike PySR, which requires labeled ground-truth solution points to train, "
-        r"PISR-NSGA-II discovers symbolic solutions using only the governing "
-        r"differential equation and boundary conditions — zero labeled data. "
-        r"Table~\ref{tab:data_efficiency} reports the number of labeled points each "
-        r"method actually consumed alongside the final MSE achieved.",
         r"\input{tables/data_efficiency_comparison.tex}",
         r"",
         r"% ─── CONVERGENCE ───────────────────────────────────────────────────────────",
@@ -443,9 +423,6 @@ def make_latex_report():
         r"\clearpage",
         r"\onecolumn",
         r"\section{Detailed PDE Analysis}",
-        r"The following sections present the symbolic approximations discovered by PISR-NSGA-II and their multi-objective Pareto trade-offs for each benchmark problem.",
-        r"",
-        r"In problems where the analytical truth is unknown and the numerical ground truth (RK4/FDM) may fail due to singularities or extreme stiffness (e.g., Troesch, Lane-Emden, Thomas-Fermi), evaluating the absolute error solely against numerical solvers can be misleading. Our visualizations now include the symbolic approximations (PISR-NSGA-II) against the data-driven state-of-the-art (PySR) and Neural approximations (DeepXDE). When physics-informed algorithms converge to identical structures without labeled data, it provides strong empirical evidence of physical discovery.",
         r""
     ]
 
@@ -458,9 +435,12 @@ def make_latex_report():
             pde_label_tex = pde_label.replace("_", r"\_")
             sol_fig = f"solution_{d}d_{pde_base}.pdf"
             pairs_fig = f"pareto_pairs_{pde_label}.pdf"
-            
-            # Check if figures exist
-            if os.path.exists(os.path.join(FIGS_DIR, sol_fig)) and os.path.exists(os.path.join(FIGS_DIR, pairs_fig)):
+
+            # Solucion de dominio (simbolica vs verdad) + el frente de Pareto
+            # pareado por EDP (generado por scripts/plot_pareto.py: gris para
+            # dominadas, verde lima para el frente real, sin interpolacion de
+            # lineas — reemplaza el plot viejo que ya no se genera).
+            if os.path.exists(os.path.join(FIGS_DIR, sol_fig)):
                 lines += [
                     rf"\subsection{{{pde_label_tex} Visualization}}",
                     r"\begin{figure}[h!]",
@@ -468,13 +448,16 @@ def make_latex_report():
                     rf"  \includegraphics[width=\textwidth]{{{sol_fig}}}",
                     rf"  \caption{{Symbolic vs Numerical solution for {pde_label_tex}.}}",
                     r"\end{figure}",
-                    r"\begin{figure}[h!]",
-                    r"  \centering",
-                    rf"  \includegraphics[width=\textwidth]{{{pairs_fig}}}",
-                    rf"  \caption{{Pairwise Pareto Trade-offs for {pde_label_tex}.}}",
-                    r"\end{figure}",
-                    r"\clearpage"
                 ]
+                if os.path.exists(os.path.join(FIGS_DIR, pairs_fig)):
+                    lines += [
+                        r"\begin{figure}[h!]",
+                        r"  \centering",
+                        rf"  \includegraphics[width=\textwidth]{{{pairs_fig}}}",
+                        rf"  \caption{{Pairwise Pareto Trade-offs for {pde_label_tex}.}}",
+                        r"\end{figure}",
+                    ]
+                lines.append(r"\clearpage")
 
     lines += [
         r"\twocolumn",

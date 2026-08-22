@@ -1,2 +1,0 @@
-method,pde,dim,mse_domain,mse_boundary,runtime_s,rank
-DeepXDE,Duffing,1,0.0014964771,0.0000000000,352.7704,1

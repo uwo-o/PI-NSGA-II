@@ -159,11 +159,24 @@ std::vector<Point> PDEProblem::domain_points(int n) const {
             pts.push_back({i, j, t});
         }
     }
-    // Refuerzo en el origen para Thomas-Fermi
+    // Refuerzo en el origen para Thomas-Fermi: anillos log-espaciados
+    // acercandose a la singularidad r=0 (donde el termino u^1.5/sqrt(r) del
+    // residuo explota). La version anterior usaba decaimiento geometrico
+    // (0.9^i) que colapsa: para i>~116 la diferencia entre puntos consecutivos
+    // es <1e-6, es decir ~60% del presupuesto de 300 puntos terminaba
+    // muestreando casi el mismo radio una y otra vez sin aportar informacion
+    // nueva. Con espaciado logaritmico real, cada punto cubre una decada
+    // distinta de la transicion [r_min, r_max] — la version continua/real de
+    // "anillos concentricos que se achican hacia el centro" (sin necesidad de
+    // integral de contorno compleja, que no aplica aca por ser un punto de
+    // ramificacion sqrt(r), no un polo).
     if (type == PDE::THOMAS_FERMI) {
-        for (int i = 0; i < 300; ++i) {
-            // Distribución de potencia para clavar el origen (singularidad)
-            double r = 0.0001 + 0.2 * std::pow(0.9, (double)i);
+        const double r_min = 1e-4, r_max = 0.2;
+        const int n_rings = 300;
+        double log_ratio = std::log(r_max / r_min);
+        for (int i = 0; i < n_rings; ++i) {
+            double frac = (double)i / (double)(n_rings - 1); // 0..1
+            double r = r_min * std::exp(frac * log_ratio);
             pts.push_back({r, (dim == 2 ? r : 0.0), 0.0});
         }
     }
@@ -327,6 +340,102 @@ PDEPriors probe_priors(const PDEProblem& prob) {
         }
     }
 
+    // 9. Separabilidad de variables (solo 2D, EDPs no-Navier-Stokes con BC
+    // Dirichlet). Se prueba con una funcion de sondeo GENERICA (sin(x)+sin(y)
+    // para la aditiva, sin(x)*sin(y) para la multiplicativa) — NO con la
+    // solucion exacta del problema (eso seria fuga de informacion, el mismo
+    // error que se encontro y corrigio en la frontera de Navier-Stokes). Es
+    // el analogo numerico de "intentar" separacion de variables clasica sin
+    // conocer la respuesta: si el residuo del OPERADOR, evaluado sobre esa
+    // funcion de sondeo, no mezcla x e y (segunda derivada cruzada ~0 en
+    // varios puntos), el operador es consistente con esa forma estructural.
+    // No se excluye ningun tipo de PDE por nombre aca (a diferencia del
+    // sondeo de simetria especular, que si necesita excluir Navier-Stokes
+    // porque ese chequeo compara prob.bc() — la condicion de frontera
+    // real de Navier-Stokes es sobre funcion de corriente, no comparable por
+    // igualdad simple). Este sondeo solo usa pde_residual_ad(), nunca bc(),
+    // asi que ese problema no aplica — es igual de valido para cualquier EDP,
+    // Navier-Stokes incluido. Excluirlo "a mano" seria justo el tipo de
+    // solucion hecha a medida de un solo problema del benchmark que no
+    // queremos.
+    if (prob.dim == 2) {
+        auto probe_mixing = [&](bool multiplicative) -> bool {
+            auto eval_R = [&](double x, double y) -> Complex {
+                AD probe;
+                double sx = std::sin(x), cx = std::cos(x), sy = std::sin(y), cy = std::cos(y);
+                if (multiplicative) {
+                    probe.v = sx * sy;
+                    probe.dx = cx * sy; probe.dy = sx * cy;
+                    probe.dxx = -sx * sy; probe.dyy = -sx * sy;
+                } else {
+                    probe.v = sx + sy;
+                    probe.dx = cx; probe.dy = cy;
+                    probe.dxx = -sx; probe.dyy = -sy;
+                }
+                return prob.pde_residual_ad(probe, x, y, 0.0);
+            };
+            double h = 1e-3;
+            for (double x0 : {0.2, 0.4, 0.6}) {
+                for (double y0 : {0.25, 0.5, 0.75}) {
+                    Complex rpp = eval_R(x0+h, y0+h), rpm = eval_R(x0+h, y0-h);
+                    Complex rmp = eval_R(x0-h, y0+h), rmm = eval_R(x0-h, y0-h);
+                    if (!std::isfinite(rpp.real()) || !std::isfinite(rmm.real())) return false;
+                    Complex d2xy = (rpp - rpm - rmp + rmm) / (4.0*h*h);
+                    double scale = std::max({std::abs(rpp), std::abs(rmm), 1.0});
+                    if (std::abs(d2xy) > 1e-2 * scale) return false;
+                }
+            }
+            return true;
+        };
+        priors.additive_separable = probe_mixing(false);
+        if (!priors.additive_separable) priors.multiplicative_separable = probe_mixing(true);
+    }
+
+    // Separabilidad triple u(x,y,t)=f(x)g(y)h(t) para EDPs dependientes del
+    // tiempo — mismo principio, generalizado a sondear las 3 derivadas
+    // cruzadas (xy, xt, yt) con una funcion de sondeo generica
+    // sin(x)*sin(y)*sin(t). General por construccion (ningun tipo excluido):
+    // aplica a cualquier PDE 2D+t que pase el sondeo del OPERADOR, no solo a
+    // una en particular.
+    if (prob.dim == 2 && prob.is_unsteady) {
+        auto eval_R3 = [&](double x, double y, double t) -> Complex {
+            AD probe;
+            double sx = std::sin(x), cx = std::cos(x);
+            double sy = std::sin(y), cy = std::cos(y);
+            double st = std::sin(t), ct = std::cos(t);
+            probe.v = sx * sy * st;
+            probe.dx = cx * sy * st; probe.dy = sx * cy * st; probe.dt = sx * sy * ct;
+            probe.dxx = -sx * sy * st; probe.dyy = -sx * sy * st;
+            return prob.pde_residual_ad(probe, x, y, t);
+        };
+        bool triple_ok = true;
+        double h = 1e-3;
+        for (double x0 : {0.2, 0.4, 0.6}) {
+            for (double y0 : {0.25, 0.5, 0.75}) {
+                for (double t0 : {0.3, 0.5, 0.7}) {
+                    Complex r000 = eval_R3(x0, y0, t0);
+                    if (!std::isfinite(r000.real())) { triple_ok = false; break; }
+                    double scale = std::max(std::abs(r000), 1.0);
+                    // d2R/dxdy
+                    Complex rxy = (eval_R3(x0+h,y0+h,t0) - eval_R3(x0+h,y0-h,t0)
+                                 - eval_R3(x0-h,y0+h,t0) + eval_R3(x0-h,y0-h,t0)) / (4.0*h*h);
+                    // d2R/dxdt
+                    Complex rxt = (eval_R3(x0+h,y0,t0+h) - eval_R3(x0+h,y0,t0-h)
+                                 - eval_R3(x0-h,y0,t0+h) + eval_R3(x0-h,y0,t0-h)) / (4.0*h*h);
+                    // d2R/dydt
+                    Complex ryt = (eval_R3(x0,y0+h,t0+h) - eval_R3(x0,y0+h,t0-h)
+                                 - eval_R3(x0,y0-h,t0+h) + eval_R3(x0,y0-h,t0-h)) / (4.0*h*h);
+                    if (std::abs(rxy) > 1e-2*scale || std::abs(rxt) > 1e-2*scale || std::abs(ryt) > 1e-2*scale) {
+                        triple_ok = false; break;
+                    }
+                }
+                if (!triple_ok) break;
+            }
+            if (!triple_ok) break;
+        }
+        priors.triple_separable = triple_ok;
+    }
+
     return priors;
 }
 
@@ -375,24 +484,33 @@ Complex PDEProblem::compute_residual(const Node* tree, const Point& p) const {
 
 double PDEProblem::compute_boundary_error(const Node* tree, const std::vector<Point>& bnd) const {
     double raw_bc_mse = 0.0;
+    // Acumulador local con guardia de finitud: un solo punto con derivada no
+    // finita (ej. una expresion como exp(-c/t) evaluada justo en t=0, donde
+    // la regla de la cadena de AD produce 0*inf=NaN) contamina la suma entera
+    // con NaN silenciosamente, propagandose hasta el BIC y las tablas del
+    // reporte. Mismo criterio de robustez que ya se aplica al residuo de
+    // dominio (ver pi_solver.cpp: chequeo de isfinite + clip universal).
+    auto add_term = [&raw_bc_mse](Complex diff) {
+        double v = std::min(std::norm(diff), 1e4);
+        if (std::isfinite(v)) raw_bc_mse += v;
+        else raw_bc_mse += 1e4; // outlier no finito: penaliza como el peor caso, no lo ignora
+    };
+    // Dirichlet simple para TODOS los tipos, incluido Navier-Stokes(-Unsteady).
+    // Antes, esos dos casos exigian ademas que du/dy y -du/dx (via diferencias
+    // finitas de bc) calzaran con la "velocidad" de una funcion de corriente
+    // psi — pero ninguno de los dos residuos de dominio actuales (ver
+    // pde_residual_ad: proxy de adveccion-difusion para el estacionario,
+    // proxy tipo ecuacion del calor u_t=k2*Lap(u) para el Unsteady) trata el
+    // arbol como una funcion de corriente; ambos operan directamente sobre el
+    // campo escalar u. Esa condicion de frontera heredada de una formulacion
+    // anterior le daba al buscador el valor Y dos derivadas de la solucion
+    // exacta en cada punto de frontera (para Unsteady, en TODO el rango de
+    // t) — mucha mas informacion que un Dirichlet real, lo que explicaba
+    // resultados "demasiado buenos para ser verdad" en Navier-Stokes-Unsteady.
     for (auto& p : bnd) {
-        if (type == PDE::NAVIER_STOKES || type == PDE::NAVIER_STOKES_UNSTEADY) {
-            // BCs en psi Y en velocidad (derivadas)
-            AD ad = tree->ad_eval_t(p.x, p.y, p.t, dim);
-            Complex u = ad.dy, v = -ad.dx;
-            Complex psi_target = bc(p.x, p.y, p.t);
-            raw_bc_mse += std::norm(ad.v - psi_target);
-            
-            double h = 0.001;
-            Complex u_target = (bc(p.x, p.y+h, p.t) - bc(p.x, p.y-h, p.t)) / (2.0*h);
-            Complex v_target = -(bc(p.x+h, p.y, p.t) - bc(p.x-h, p.y, p.t)) / (2.0*h);
-            raw_bc_mse += std::norm(u - u_target);
-            raw_bc_mse += std::norm(v - v_target);
-        } else {
-            Complex val = tree->eval_t(p.x, p.y, p.t);
-            Complex target = bc(p.x, p.y, p.t);
-            raw_bc_mse += std::norm(val - target);
-        }
+        Complex val = tree->eval_t(p.x, p.y, p.t);
+        Complex target = bc(p.x, p.y, p.t);
+        add_term(val - target);
     }
     return bnd.empty() ? 0.0 : (raw_bc_mse / bnd.size());
 }

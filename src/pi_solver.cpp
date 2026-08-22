@@ -6,7 +6,17 @@
 #include <cmath>
 #include <omp.h>
 
-static void fast_non_dominated_sort(std::vector<PIIndividual>& pop) {
+// use_boundary: cuando el ansatz de frontera exacta aplica, mse_boundary es
+// EXACTAMENTE 0 para todo individuo — no aporta nada a la dominancia (0<=0
+// siempre se cumple, nunca "<" estricto) pero SI contamina crowding distance:
+// con todos los valores empatados en 0, calculate_crowding_distance ordena un
+// empate arbitrario y le asigna "distancia infinita" (1e15) a dos individuos
+// cualesquiera solo por quedar primero/ultimo en ese orden sin sentido,
+// inflando su crowding muy por encima de lo que aportan mse_domain/tree_size
+// (las unicas dimensiones con informacion real) y distorsionando la seleccion.
+// Por eso se excluye el objetivo de frontera por completo (no solo se ignora
+// en la comparacion) cuando se sabe que es constante — ver ansatz_applies().
+static void fast_non_dominated_sort(std::vector<PIIndividual>& pop, bool use_boundary = true) {
     int n = static_cast<int>(pop.size());
     std::vector<std::vector<int>> S(n);
     std::vector<int> count(n, 0);
@@ -18,8 +28,10 @@ static void fast_non_dominated_sort(std::vector<PIIndividual>& pop) {
             else if (!pop[i].is_feasible && !pop[j].is_feasible) {
                 if (pop[i].constraint_violation < pop[j].constraint_violation) i_dom_j = true;
             } else if (pop[i].is_feasible && pop[j].is_feasible) {
-                if ((pop[i].mse_domain <= pop[j].mse_domain && pop[i].mse_boundary <= pop[j].mse_boundary && pop[i].tree_size <= pop[j].tree_size) &&
-                    (pop[i].mse_domain < pop[j].mse_domain || pop[i].mse_boundary < pop[j].mse_boundary || pop[i].tree_size < pop[j].tree_size))
+                bool bnd_le = !use_boundary || pop[i].mse_boundary <= pop[j].mse_boundary;
+                bool bnd_lt = use_boundary && pop[i].mse_boundary < pop[j].mse_boundary;
+                if ((pop[i].mse_domain <= pop[j].mse_domain && bnd_le && pop[i].tree_size <= pop[j].tree_size) &&
+                    (pop[i].mse_domain < pop[j].mse_domain || bnd_lt || pop[i].tree_size < pop[j].tree_size))
                     i_dom_j = true;
             }
             if (i_dom_j) S[i].push_back(j);
@@ -29,8 +41,10 @@ static void fast_non_dominated_sort(std::vector<PIIndividual>& pop) {
                 else if (!pop[j].is_feasible && !pop[i].is_feasible) {
                     if (pop[j].constraint_violation < pop[i].constraint_violation) j_dom_i = true;
                 } else if (pop[j].is_feasible && pop[i].is_feasible) {
-                    if ((pop[j].mse_domain <= pop[i].mse_domain && pop[j].mse_boundary <= pop[i].mse_boundary && pop[j].tree_size <= pop[i].tree_size) &&
-                        (pop[j].mse_domain < pop[i].mse_domain || pop[j].mse_boundary < pop[i].mse_boundary || pop[j].tree_size < pop[i].tree_size))
+                    bool bnd_le = !use_boundary || pop[j].mse_boundary <= pop[i].mse_boundary;
+                    bool bnd_lt = use_boundary && pop[j].mse_boundary < pop[i].mse_boundary;
+                    if ((pop[j].mse_domain <= pop[i].mse_domain && bnd_le && pop[j].tree_size <= pop[i].tree_size) &&
+                        (pop[j].mse_domain < pop[i].mse_domain || bnd_lt || pop[j].tree_size < pop[i].tree_size))
                         j_dom_i = true;
                 }
                 if (j_dom_i) count[i]++;
@@ -51,7 +65,7 @@ static void fast_non_dominated_sort(std::vector<PIIndividual>& pop) {
     }
 }
 
-static void calculate_crowding_distance(std::vector<PIIndividual>& pop, const std::vector<int>& front_indices) {
+static void calculate_crowding_distance(std::vector<PIIndividual>& pop, const std::vector<int>& front_indices, bool use_boundary = true) {
     if (front_indices.empty()) return;
     int n = static_cast<int>(front_indices.size());
     for (int idx : front_indices) pop[idx].crowding = 0.0;
@@ -64,18 +78,18 @@ static void calculate_crowding_distance(std::vector<PIIndividual>& pop, const st
         for (int i = 1; i < n-1; ++i) pop[sorted[i]].crowding += (getter(pop[sorted[i+1]]) - getter(pop[sorted[i-1]])) / range;
     };
     assign_dist([](const PIIndividual& ind) { return ind.mse_domain; });
-    assign_dist([](const PIIndividual& ind) { return ind.mse_boundary; });
+    if (use_boundary) assign_dist([](const PIIndividual& ind) { return ind.mse_boundary; });
     assign_dist([](const PIIndividual& ind) { return static_cast<double>(ind.tree_size); });
 }
 
-std::vector<PIIndividual> nsga2_select_next(std::vector<PIIndividual> combined, int pop_size) {
-    fast_non_dominated_sort(combined);
+std::vector<PIIndividual> nsga2_select_next(std::vector<PIIndividual> combined, int pop_size, bool use_boundary = true) {
+    fast_non_dominated_sort(combined, use_boundary);
     std::vector<PIIndividual> next_pop; int rank = 1;
     while (next_pop.size() < static_cast<size_t>(pop_size)) {
         std::vector<int> front;
         for (size_t i = 0; i < combined.size(); ++i) if (combined[i].rank == rank) front.push_back(i);
         if (front.empty()) break;
-        calculate_crowding_distance(combined, front);
+        calculate_crowding_distance(combined, front, use_boundary);
         if (next_pop.size() + front.size() <= static_cast<size_t>(pop_size)) {
             for (int i : front) next_pop.push_back(std::move(combined[i]));
         } else {
@@ -115,7 +129,13 @@ namespace Config {
     double CROSSOVER_PROB = 0.80;  
     double MUTATION_PROB  = 0.45;   
     int    TOURNAMENT_SIZE = 4;    
-    double STOP_THRESHOLD  = 1e-12; 
+    // Antes 1e-12: demasiado estricto para activarse en la practica — la
+    // mayoria de las corridas convergen en el rango 1e-4 a 1e-8 (ver
+    // benchmarks de la suite), asi que el early stop casi nunca disparaba.
+    // 1e-6 dispara cuando el campeon ya alcanzo una solucion muy buena, sin
+    // ser tan laxo como para cortar corridas que todavia podrian mejorar
+    // ordenes de magnitud (Laplace/Airy/Lane-Emden llegan a 1e-9..1e-12).
+    double STOP_THRESHOLD  = 1e-6;
 
     int    RAR_INTERVAL       = 25;
     int    RAR_CANDIDATES     = 10000;
@@ -123,6 +143,7 @@ namespace Config {
     int    RAR_ELITE_COUNT    = 4;
     double RAR_RANDOM_RATIO   = 0.40;
     bool   GENERAL_MODE       = false;
+    bool   USE_ANSATZ         = true;
     int    CORES              = 1;
     bool   IS_SINGULAR        = false; // Detectado dinamicamente
 }
@@ -135,7 +156,7 @@ namespace Config {
 // Usado desde evaluate(), get_validation_mse() y el gradiente complex-step
 // para que los tres midan exactamente la misma funcion U(x,y).
 static bool ansatz_applies(const PDEProblem& prob, size_t bnd_size) {
-    if (Config::GENERAL_MODE) return false;
+    if (Config::GENERAL_MODE || !Config::USE_ANSATZ) return false;
     if (bnd_size < 2) return false;
     if (prob.dim == 1) return true;
     if (prob.dim == 2) return prob.type != PDE::NAVIER_STOKES && prob.type != PDE::NAVIER_STOKES_UNSTEADY;
@@ -236,12 +257,28 @@ void PIIndividual::evaluate(const PDEProblem& prob,
         constraint_violation += 10.0;
     }
 
-    if (!prob.is_numerical && !(prob.dim_u == Units::None)) {
+    if (!(prob.dim_u == Units::None)) {
+        // El bypass "si el arbol tiene un ERC en cualquier parte, saltate el
+        // chequeo" parecia demasiado amplio, pero al sacarlo (probado
+        // empiricamente) la poblacion entera queda 100% infactible siempre:
+        // las ERC son numeros puros sin unidades propias, y MUL/DIV combinan
+        // dimensiones sumando/restando (correcto dimensionalmente) — asi que
+        // NINGUN arbol construido desde variables (dim_x=Length, etc.) puede
+        // alcanzar una dimension distinta como Energy sin una constante que
+        // cargue la diferencia. El motor no modela "constantes con unidades
+        // propias" (ej. una g=9.8 m/s^2 ajustada empiricamente), asi que
+        // exigir coincidencia exacta es estructuralmente imposible de
+        // cumplir, no un criterio util. Se mantiene el bypass por ERC (sigue
+        // siendo la unica forma de que el chequeo no bloquee al 100% de la
+        // poblacion), pero se corrige el gap real que si encontramos: la
+        // excepcion `!prob.is_numerical` dejaba a Duffing (dim_u=Acceleration,
+        // is_numerical=true) fuera del chequeo aunque si tiene unidades
+        // asignadas — sin motivo para excluirlo.
         auto d_opt = tree->get_dimension(prob);
         bool has_erc = tree->contains_erc();
         if (!has_erc && (!d_opt.has_value() || *d_opt != prob.dim_u)) {
             is_feasible = false;
-            constraint_violation += 5.0; 
+            constraint_violation += 5.0;
         }
     }
 
@@ -317,6 +354,60 @@ void PIIndividual::evaluate(const PDEProblem& prob,
                 is_feasible = false;
                 constraint_violation += 1.0;
             }
+        }
+    }
+
+    // Restricción de separabilidad: antes solo se usaba para SEMBRAR la
+    // población inicial (ver random_separable_tree/random_triple_separable_tree
+    // en PISolver::run) — nada impedía que mutación/cruzamiento la destruyeran
+    // despues, ya que solo era un punto de partida, no una restricción activa
+    // (a diferencia de la simetría especular arriba, que sí se re-chequea en
+    // cada evaluate()). Se agrega el mismo tratamiento: si el operador es
+    // separable, cualquier candidato que NO respete esa estructura en su
+    // propia salida se marca infactible — sin importar qué tan bajo sea su
+    // residuo, no puede ser la solución real si el operador exige separación.
+    // Aditiva: f(x1)+g(y1) + f(x2)+g(y2) = f(x1)+g(y2) + f(x2)+g(y1) (identidad
+    // algebraica que se cumple para CUALQUIER función aditivamente separable).
+    // Multiplicativa: U(x1,y1)U(x2,y2) = U(x1,y2)U(x2,y1) (identidad analoga
+    // para productos). Triple: la multiplicativa aplicada a cada par de
+    // variables por separado, con la tercera fija.
+    if (prob.priors.additive_separable || prob.priors.multiplicative_separable || prob.priors.triple_separable) {
+        auto eval_u3 = [&](double x, double y, double t) -> Complex {
+            AD a = tree->ad_eval_t(x, y, t, prob.dim);
+            if (use_ansatz) a = apply_boundary_ansatz(prob, a, x, y);
+            return a.v;
+        };
+        constexpr double SEP_TOL = 0.05;
+        auto check_additive = [&](Complex u11, Complex u22, Complex u12, Complex u21) {
+            Complex lhs = u11 + u22, rhs = u12 + u21;
+            double scale = std::max({std::abs(u11), std::abs(u22), std::abs(u12), std::abs(u21), 1e-6});
+            return std::isfinite(lhs.real()) && std::isfinite(rhs.real()) && std::abs(lhs - rhs) <= SEP_TOL * scale;
+        };
+        auto check_mult = [&](Complex u11, Complex u22, Complex u12, Complex u21) {
+            Complex lhs = u11 * u22, rhs = u12 * u21;
+            double scale = std::max({std::abs(lhs), std::abs(rhs), 1e-6});
+            return std::isfinite(lhs.real()) && std::isfinite(rhs.real()) && std::abs(lhs - rhs) <= SEP_TOL * scale;
+        };
+        if (prob.priors.additive_separable) {
+            Complex u11 = eval_u3(0.25, 0.25, 0.0), u22 = eval_u3(0.75, 0.75, 0.0);
+            Complex u12 = eval_u3(0.25, 0.75, 0.0), u21 = eval_u3(0.75, 0.25, 0.0);
+            if (!check_additive(u11, u22, u12, u21)) { is_feasible = false; constraint_violation += 1.0; }
+        }
+        if (prob.priors.multiplicative_separable) {
+            Complex u11 = eval_u3(0.25, 0.25, 0.0), u22 = eval_u3(0.75, 0.75, 0.0);
+            Complex u12 = eval_u3(0.25, 0.75, 0.0), u21 = eval_u3(0.75, 0.25, 0.0);
+            if (!check_mult(u11, u22, u12, u21)) { is_feasible = false; constraint_violation += 1.0; }
+        }
+        if (prob.priors.triple_separable) {
+            Complex a11 = eval_u3(0.25, 0.25, 0.5), a22 = eval_u3(0.75, 0.75, 0.5);
+            Complex a12 = eval_u3(0.25, 0.75, 0.5), a21 = eval_u3(0.75, 0.25, 0.5);
+            if (!check_mult(a11, a22, a12, a21)) { is_feasible = false; constraint_violation += 1.0; }
+            Complex b11 = eval_u3(0.25, 0.5, 0.25), b22 = eval_u3(0.75, 0.5, 0.75);
+            Complex b12 = eval_u3(0.25, 0.5, 0.75), b21 = eval_u3(0.75, 0.5, 0.25);
+            if (!check_mult(b11, b22, b12, b21)) { is_feasible = false; constraint_violation += 1.0; }
+            Complex c11 = eval_u3(0.5, 0.25, 0.25), c22 = eval_u3(0.5, 0.75, 0.75);
+            Complex c12 = eval_u3(0.5, 0.25, 0.75), c21 = eval_u3(0.5, 0.75, 0.25);
+            if (!check_mult(c11, c22, c12, c21)) { is_feasible = false; constraint_violation += 1.0; }
         }
     }
 
@@ -622,15 +713,32 @@ std::vector<PIIndividual> PISolver::run(int pop_size, int max_gen) {
         }
         bnd_pts_.push_back(p);
     }
+    use_boundary_objective_ = !ansatz_applies(prob_, bnd_pts_.size());
+    // Si probe_priors() detecto que el OPERADOR de la EDP es consistente con
+    // separacion de variables (f(x)+g(y) o f(x)*g(y) — sondeado sobre una
+    // funcion generica, no la solucion real, ver probe_priors), TODA la
+    // poblacion inicial se construye directamente en esa forma en vez de la
+    // mezcla habitual random_tree_special/random_tree — inspirado en el
+    // metodo clasico de separacion de variables (a pedido explicito, es
+    // experimental: fuerza la estructura desde el arranque en vez de dejar
+    // que emerja).
+    bool force_separable = priors_.additive_separable || priors_.multiplicative_separable;
     for (int i = 0; i < pop_size; ++i) {
         PIIndividual ind;
-        if (i < pop_size/2) ind.tree = random_tree_special(Config::MAX_TREE_DEPTH, gen_, prob_, priors_);
-        else ind.tree = random_tree(Config::MAX_TREE_DEPTH, gen_, prob_);
+        if (priors_.triple_separable) {
+            ind.tree = random_triple_separable_tree(Config::MAX_TREE_DEPTH, gen_, prob_);
+        } else if (force_separable) {
+            ind.tree = random_separable_tree(Config::MAX_TREE_DEPTH, gen_, prob_, priors_.multiplicative_separable);
+        } else if (i < pop_size/2) {
+            ind.tree = random_tree_special(Config::MAX_TREE_DEPTH, gen_, prob_, priors_);
+        } else {
+            ind.tree = random_tree(Config::MAX_TREE_DEPTH, gen_, prob_);
+        }
         if (ind.tree) ind.tree = ind.tree->simplify();
         ind.evaluate(prob_, dom_pts_, bnd_pts_, 0);
         population_.push_back(std::move(ind));
     }
-    fast_non_dominated_sort(population_);
+    fast_non_dominated_sort(population_, use_boundary_objective_);
     update_hall_of_fame();
     int n_threads = omp_get_max_threads();
 
@@ -702,7 +810,7 @@ std::vector<PIIndividual> PISolver::run(int pop_size, int max_gen) {
         }
 
         // Re-sort and update hall of fame based on current batch evaluation
-        fast_non_dominated_sort(population_);
+        fast_non_dominated_sort(population_, use_boundary_objective_);
         update_hall_of_fame();
 
         if (has_best_ever_) {
@@ -710,22 +818,37 @@ std::vector<PIIndividual> PISolver::run(int pop_size, int max_gen) {
             double train_err = Config::GENERAL_MODE ? best_ever_.mse_domain : (best_ever_.mse_domain + best_ever_.mse_boundary);
             double threshold = Config::STOP_THRESHOLD;
             
+            // Clona (no mueve) al campeon: best_ever_ es un miembro de la
+            // instancia (usado despues por polish_constants/solution_mse en
+            // main.cpp via pi.champion()) — moverlo lo dejaba con el arbol
+            // nulo mientras has_best_ever_ seguia en true, asi que main.cpp
+            // creia tener un campeon valido y todo colapsaba a sentinelas
+            // (1e18/-1). No se manifestaba antes porque el umbral (1e-12)
+            // nunca se alcanzaba en la practica.
+            auto clone_champion = [&]() {
+                PIIndividual c;
+                c.mse_domain = best_ever_.mse_domain; c.mse_boundary = best_ever_.mse_boundary;
+                c.rank = best_ever_.rank; c.crowding = best_ever_.crowding; c.tree_size = best_ever_.tree_size;
+                c.is_feasible = best_ever_.is_feasible; c.constraint_violation = best_ever_.constraint_violation;
+                if (best_ever_.tree) c.tree = best_ever_.tree->clone();
+                return c;
+            };
             if (train_err < threshold) {
                 // En modo general, aceptamos la solución por su residuo dinámico
                 if (Config::GENERAL_MODE) {
                     std::cout << "[INFO] Early stopping en gen=" << g << " (Solucion General Descubierta, Res < " << threshold << ")" << std::endl;
-                    std::vector<PIIndividual> final_pop; final_pop.push_back(std::move(best_ever_));
+                    std::vector<PIIndividual> final_pop; final_pop.push_back(clone_champion());
                     for (auto& ind : population_) final_pop.push_back(std::move(ind));
-                    fast_non_dominated_sort(final_pop);
+                    fast_non_dominated_sort(final_pop, use_boundary_objective_);
                     return final_pop;
                 }
 
                 double val_err = best_ever_.get_validation_mse(prob_, val_dom_pts_, val_bnd_pts_);
                 if (val_err < threshold * 10.0) {
                     std::cout << "[INFO] Early stopping en gen=" << g << " (Ley Fisica Descubierta, MSE < " << threshold << ")" << std::endl;
-                    std::vector<PIIndividual> final_pop; final_pop.push_back(std::move(best_ever_));
+                    std::vector<PIIndividual> final_pop; final_pop.push_back(clone_champion());
                     for (auto& ind : population_) final_pop.push_back(std::move(ind));
-                    fast_non_dominated_sort(final_pop);
+                    fast_non_dominated_sort(final_pop, use_boundary_objective_);
                     return final_pop;
                 }
             }
@@ -761,8 +884,8 @@ std::vector<PIIndividual> PISolver::run(int pop_size, int max_gen) {
         for (const auto& ind : population_) combined.push_back(clone_ind(ind));
         for (auto& ind : offsprings) combined.push_back(std::move(ind));
 
-        population_ = nsga2_select_next(std::move(combined), pop_size);
-        fast_non_dominated_sort(population_);
+        population_ = nsga2_select_next(std::move(combined), pop_size, use_boundary_objective_);
+        fast_non_dominated_sort(population_, use_boundary_objective_);
 
         // Pulido de constantes para TODA la población, no sólo rank==1. Antes una
         // estructura genuinamente buena con constantes sin afinar podía perder la
@@ -802,7 +925,7 @@ std::vector<PIIndividual> PISolver::run(int pop_size, int max_gen) {
         champ.rank = 1; champ.is_feasible = true;
         if (best_ever_.tree) champ.tree = best_ever_.tree->clone();
         population_.push_back(std::move(champ));
-        fast_non_dominated_sort(population_);
+        fast_non_dominated_sort(population_, use_boundary_objective_);
     }
     return std::move(population_);
 }

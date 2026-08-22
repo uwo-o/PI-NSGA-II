@@ -1,2 +1,0 @@
-method,pde,dim,mse_domain,mse_boundary,rank
-PINN,Liouville,2,0.0098827099,0.0000001135,1

@@ -1,0 +1,2 @@
+method,pde,best_mse_domain,best_mse_boundary,mse_total,runtime_s
+PySR,Lane-Emden_1D,2.5556862850198192e-14,0.0,2.5556862850198192e-14,26.854671716690063

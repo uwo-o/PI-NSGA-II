@@ -66,13 +66,71 @@ void save_convergence_csv(const std::vector<ConvergenceStats>& history,
 // por mse de entrenamiento — ese escaneo podia elegir un individuo que
 // simplemente sobreajustaba el mini-batch de la ultima generacion.
 template<typename Ind>
-void save_best_expression(const Ind& champion, const std::string& path, int dim = 2) {
+void save_best_expression(const Ind& champion, const PDEProblem& prob, const std::string& path, int dim = 2) {
     if (!champion.tree) return;
     std::ofstream f(path);
-    f << (dim == 1 ? "$$ \\hat{u}(x) = " : "$$ \\hat{u}(x,y) = ");
-    auto final_tree = champion.tree->simplify(); // Limpieza simbólica
-    final_tree->round_constants(0.05);           // Redondeo inteligente (1.01 -> 1)
-    final_tree->print_formal(f, 0);              // Impresión formal sin paréntesis redundantes
+    // Redondeo ANTES de simplificar (no al reves): tras el pulido por
+    // gradiente, dos sub-arboles algebraicamente iguales (ej. "1.0000003*x"
+    // y "0.9999997*x", ambos de una mutacion/cruzamiento que dejo ERCs casi-
+    // pero-no-exactamente 1.0) imprimen igual ("x") por la tolerancia de
+    // print_formal, pero simplify() los ve como distintos y no cancela
+    // "1.0000003x - 0.9999997x" a 0. Redondeando primero (1e-3, cosmetico —
+    // NO el 0.05 agresivo de antes que snapeaba constantes legitimas a 0)
+    // ambos quedan en 1.0 exacto, y simplify() sí puede cancelar/colapsar.
+    auto final_tree = champion.tree->clone();
+    final_tree->round_constants(1e-3);
+    final_tree = final_tree->simplify(); // Limpieza simbólica
+
+    // El arbol representa N(x) (o N(x,y)) DENTRO del ansatz de frontera exacta
+    // U = L + B*N (ver apply_boundary_ansatz en pi_solver.cpp) — imprimir solo
+    // N sin el envoltorio es enganoso: si N converge a ~0 (la solucion real ya
+    // es casi L, sin correccion necesaria) el .tex mostraba literalmente "0"
+    // como si esa fuera toda la solucion. Mismo criterio que ansatz_applies():
+    // no aplica a Navier-Stokes (2D, condicion de frontera no-Dirichlet simple).
+    bool use_ansatz = !Config::GENERAL_MODE && Config::USE_ANSATZ &&
+        (dim == 1 || (dim == 2 && prob.type != PDE::NAVIER_STOKES && prob.type != PDE::NAVIER_STOKES_UNSTEADY));
+
+    if (!use_ansatz) {
+        f << "$$ ";
+        final_tree->print_formal(f, 0);
+        f << " $$" << std::endl;
+        return;
+    }
+
+    // Se imprime SIN etiquetar nada (ni "N(x)=", ni "L/B", ni "ansatz") — solo
+    // el resultado. Normalmente eso es N(x) sola (la correccion que la
+    // busqueda de verdad descubrio; fusionarla con L+B como antes no la
+    // "esconde", ese factor B(x)=x(x-1) sigue siendo visible en el resultado
+    // re-escrito mas largo). PERO si N es numericamente ~0 en varios puntos
+    // (la solucion real ya coincide con la interpolacion de frontera, sin
+    // correccion necesaria), mostrar "0" es inutil — en ese caso (solo 1D,
+    // donde L(x) SI tiene forma cerrada simple; en 2D L(x,y) es una
+    // interpolacion transfinita evaluada en runtime sin AST, no hay forma
+    // cerrada generica para fusionar) se arma y simplifica L(x)+B(x)*N(x)
+    // completo, que en la practica colapsa a la interpolacion lineal simple.
+    bool n_negligible = true;
+    for (double xp : {0.13, 0.5, 0.87}) {
+        if (std::abs(final_tree->eval_t(xp, xp*0.6, 0.0)) > 1e-3) { n_negligible = false; break; }
+    }
+    if (n_negligible && dim == 1) {
+        double u0 = prob.bc(0.0, 0.0, 0.0).real();
+        double u1 = prob.bc(1.0, 0.0, 0.0).real();
+        NodePtr L = make_binary(NodeType::ADD, make_erc(u0),
+                                 make_binary(NodeType::MUL, make_var('x'), make_erc(u1 - u0)));
+        NodePtr B = make_binary(NodeType::MUL, make_var('x'),
+                                 make_binary(NodeType::SUB, make_var('x'), make_erc(1.0)));
+        NodePtr U = make_binary(NodeType::ADD, std::move(L),
+                                 make_binary(NodeType::MUL, std::move(B), std::move(final_tree)));
+        U = U->simplify();
+        U->round_constants(1e-3);
+        U = U->simplify();
+        f << "$$ ";
+        U->print_formal(f, 0);
+        f << " $$" << std::endl;
+        return;
+    }
+    f << "$$ ";
+    final_tree->print_formal(f, 0);
     f << " $$" << std::endl;
 }
 
@@ -86,15 +144,19 @@ void save_best_grid(const Ind& champion, const PDEProblem& prob, const std::stri
         // (mismo que usa PIIndividual::evaluate durante el entrenamiento) — hay
         // que deshacerlo acá también, si no el grid grafica la corrección cruda
         // en vez de la solución real.
+        bool use_ansatz_1d = !Config::GENERAL_MODE && Config::USE_ANSATZ;
         double u0 = prob.bc(0.0, 0.0, 0.0).real();
         double u1 = prob.bc(1.0, 0.0, 0.0).real();
         f << "x,u_exact,u_approx\n";
         for (int i = 0; i <= 100; ++i) {
             double x = (double)i / 100.0;
             double N = std::real(champion.tree->eval(x, 0));
-            double L = u0 + x * (u1 - u0);
-            double B = x * (x - 1.0);
-            double u_approx = L + B * N;
+            double u_approx = N;
+            if (use_ansatz_1d) {
+                double L = u0 + x * (u1 - u0);
+                double B = x * (x - 1.0);
+                u_approx = L + B * N;
+            }
             f << x << "," << std::real(prob.numerical_exact(x, 0, 0)) << "," << u_approx << "\n";
         }
     } else {
@@ -103,7 +165,8 @@ void save_best_grid(const Ind& champion, const PDEProblem& prob, const std::stri
         // función de corriente/velocidad), el árbol representa N(x,y) dentro de
         // U(x,y) = L(x,y) + B(x,y)*N(x,y) (interpolación transfinita — mismas
         // fórmulas que PIIndividual::evaluate/apply_boundary_ansatz en pi_solver.cpp).
-        bool use_ansatz_2d = (prob.type != PDE::NAVIER_STOKES && prob.type != PDE::NAVIER_STOKES_UNSTEADY);
+        bool use_ansatz_2d = !Config::GENERAL_MODE && Config::USE_ANSATZ &&
+            (prob.type != PDE::NAVIER_STOKES && prob.type != PDE::NAVIER_STOKES_UNSTEADY);
         f << "x,y,u_exact,u_approx\n";
         for (int i = 0; i <= 30; ++i) {
             for (int j = 0; j <= 30; ++j) {
@@ -323,14 +386,20 @@ void save_summary(const std::vector<Stats>& stats, const std::string& path) {
 
 // ─── Tabla en consola (Solo PISR-NSGA-II) ──────────────────────────────────────
 void print_table(const std::string& lbl, const Stats& p) {
-    std::cout << "\n+------------------+-------------+-------------+----------+-------------+-------------+----------+\n";
-    std::cout << "| " << std::left << std::setw(92) << ("  Ecuacion: " + lbl) << "|\n";
-    std::cout << "+------------------+-------------+-------------+----------+-------------+-------------+----------+\n";
-    std::cout << "| Metodo           | MSE Dom.    | MSE Bnd.    | Pareto   | Best BIC    | MSE Solucion| Tiempo   |\n";
-    std::cout << "+------------------+-------------+-------------+----------+-------------+-------------+----------+\n";
+    // MSE Bnd. ya no se imprime: con el ansatz de frontera exacta aplicado,
+    // ese objetivo es 0 constante para casi toda la suite y desde el fix
+    // anterior tampoco es un objetivo real de NSGA-II ahi (ver
+    // use_boundary_objective_ en pi_solver.cpp) — mostrar siempre "0.0000e+00"
+    // no aportaba nada. Sigue calculandose internamente (Navier-Stokes SI lo
+    // usa como objetivo real) y exportandose en los CSV, solo se saca de esta
+    // tabla resumen.
+    std::cout << "\n+------------------+-------------+----------+-------------+-------------+----------+\n";
+    std::cout << "| " << std::left << std::setw(78) << ("  Ecuacion: " + lbl) << "|\n";
+    std::cout << "+------------------+-------------+----------+-------------+-------------+----------+\n";
+    std::cout << "| Metodo           | MSE Dom.    | Pareto   | Best BIC    | MSE Solucion| Tiempo   |\n";
+    std::cout << "+------------------+-------------+----------+-------------+-------------+----------+\n";
     std::cout << std::scientific << std::setprecision(4);
     std::cout << "| PISR-NSGA-II     | " << std::setw(11) << p.best_domain
-              << " | " << std::setw(11) << p.best_bnd
               << std::defaultfloat << std::setprecision(4)
               << " | " << std::setw(8)  << p.front_size
               << std::scientific << std::setprecision(4)
@@ -338,9 +407,9 @@ void print_table(const std::string& lbl, const Stats& p) {
               << " | " << std::setw(11) << p.solution_mse
               << std::defaultfloat << std::setprecision(4)
               << " | " << std::setw(7)  << p.runtime_s << "s |\n";
-    std::cout << "+------------------+-------------+-------------+----------+-------------+-------------+----------+\n";
-    std::cout << "| Health Analytics | Infeasible: " << std::setw(5) << std::fixed << std::setprecision(1) << p.infeasible_ratio << "% | Bloat Factor (Avg nodes): " << std::setw(5) << p.bloat_factor << "                       |\n";
-    std::cout << "+------------------+-------------+-------------+----------+-------------+-------------+----------+\n";
+    std::cout << "+------------------+-------------+----------+-------------+-------------+----------+\n";
+    std::cout << "| Health Analytics | Infeasible: " << std::setw(5) << std::fixed << std::setprecision(1) << p.infeasible_ratio << "% | Bloat Factor (Avg nodes): " << std::setw(5) << p.bloat_factor << "         |\n";
+    std::cout << "+------------------+-------------+----------+-------------+-------------+----------+\n";
 }
 
 // ─── Una corrida completa (Solo PISR-NSGA-II) ──────────────────────────────────
@@ -348,6 +417,13 @@ std::vector<Stats> run_once(int run_id, const std::string& out_dir, bool verbose
     unsigned seed_base = replicable ? (1000u * (unsigned)(run_id + 1)) : std::random_device{}();
     std::vector<PDEProblem> all_problems;
     
+    // Ecuaciones "faciles" de calibracion (solucion cerrada conocida, no
+    // singulares, no rigidas) — sirven de sanity check: si el algoritmo no
+    // converge casi exacto aca, algo esta mal en el pipeline, no en la EDP.
+    all_problems.push_back(make_laplace(1));
+    all_problems.push_back(make_poisson(1));
+    all_problems.push_back(make_harmonic_oscillator(1));
+
     // 1D y 2D Hardcore Equations
     for (int d : {1, 2}) {
         all_problems.push_back(make_airy(d));
@@ -473,7 +549,7 @@ std::vector<Stats> run_once(int run_id, const std::string& out_dir, bool verbose
             save_pareto_csv(pi_pop, out_dir + "/" + lbl + "_pi_gn_pareto.csv", "PISR-NSGA-II", prob.name(), prob.dim);
             save_convergence_csv(pi.history(), out_dir + "/" + lbl + "_pi_gn_convergence.csv");
             if (has_champion) {
-                save_best_expression(champion, out_dir + "/expr_" + lbl + "_PISR-EMOAD.tex", prob.dim);
+                save_best_expression(champion, prob, out_dir + "/expr_" + lbl + "_PISR-EMOAD.tex", prob.dim);
                 save_best_grid(champion, prob, out_dir + "/grid_" + lbl + "_PISR-EMOAD.csv");
             }
 
@@ -537,6 +613,7 @@ int main(int argc, char* argv[]) {
         else if (std::strcmp(argv[i], "--sigma") == 0 && i+1 < argc) Config::ERC_SIGMA = std::atof(argv[++i]);
         else if (std::strcmp(argv[i], "--stop") == 0 && i+1 < argc) Config::STOP_THRESHOLD = std::atof(argv[++i]);
         else if (std::strcmp(argv[i], "--general") == 0) Config::GENERAL_MODE = true;
+        else if (std::strcmp(argv[i], "--no-ansatz") == 0) Config::USE_ANSATZ = false;
         else if (std::strcmp(argv[i], "--cores") == 0 && i+1 < argc) Config::CORES = std::atoi(argv[++i]);
         else if (std::strcmp(argv[i], "--help") == 0) { print_usage(argv[0]); return 0; }
     }

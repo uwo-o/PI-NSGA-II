@@ -1,2 +1,0 @@
-method,pde,dim,mse_domain,mse_boundary,runtime_s,rank
-DeepXDE,Lane-Emden,1,0.0014361606,0.0026320609,356.8189,1

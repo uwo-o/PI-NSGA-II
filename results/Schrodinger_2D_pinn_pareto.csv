@@ -1,2 +1,0 @@
-method,pde,dim,mse_domain,mse_boundary,rank
-PINN,Schrodinger,2,0.9607248251,0.0000000013,1

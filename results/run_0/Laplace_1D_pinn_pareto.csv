@@ -1,2 +1,0 @@
-method,pde,dim,mse_domain,mse_boundary,runtime_s,rank
-DeepXDE,Laplace,1,0.0000000001,0.0000000000,65.3202,1

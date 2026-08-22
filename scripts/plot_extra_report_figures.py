@@ -26,10 +26,11 @@ matplotlib.rcParams.update({
 })
 
 PDES_TO_PLOT = [
-    "Airy_1D", "Airy_2D", 
-    "Fisher_1D", "Fisher_2D", 
-    "Duffing_1D", "Duffing_2D", 
-    "Thomas-Fermi_1D", "Thomas-Fermi_2D", 
+    "Laplace_1D", "Poisson_1D", "HarmonicOscillator_1D",
+    "Airy_1D", "Airy_2D",
+    "Fisher_1D", "Fisher_2D",
+    "Duffing_1D", "Duffing_2D",
+    "Thomas-Fermi_1D", "Thomas-Fermi_2D",
     "Navier-Stokes_2D", "Navier-Stokes-Unsteady_2D",
     "Lane-Emden_1D", "Troesch_1D", "Ginzburg-Landau_1D", "Painleve-I_1D"
 ]
@@ -168,17 +169,19 @@ def plot_pairwise_pareto_fronts():
         if len(df) == 0: continue
         
         fig, axes = plt.subplots(1, 3, figsize=(21, 6), layout="constrained")
-        
+
         mask_rank1 = (df["rank"] == 1)
         mask_dominated = (df["rank"] > 1)
-        
+        LIME = "#9ACD32"
+        GRAY = "#B0B0B0"
+
         # 1. Domain vs Boundary (Log-Log)
         ax = axes[0]
         if mask_dominated.any():
-            ax.scatter(df[mask_dominated]["mse_domain"], df[mask_dominated]["mse_boundary"], 
-                       c='lightgray', s=20, alpha=0.3, label='Dominated')
-        ax.scatter(df[mask_rank1]["mse_domain"], df[mask_rank1]["mse_boundary"], 
-                   c='#2E86C1', s=60, edgecolors='white', linewidth=0.5, label='Pareto Front', zorder=10)
+            ax.scatter(df[mask_dominated]["mse_domain"], df[mask_dominated]["mse_boundary"],
+                       c=GRAY, s=25, alpha=0.5, label='Dominada', zorder=1)
+        ax.scatter(df[mask_rank1]["mse_domain"], df[mask_rank1]["mse_boundary"],
+                   c=LIME, s=60, edgecolors='k', linewidth=0.5, label='No dominada (Frente)', zorder=10)
         ax.set_xscale("log"); ax.set_yscale("log")
         ax.set_xlabel("Domain MSE", fontsize=16); ax.set_ylabel("Boundary MSE", fontsize=16)
         ax.set_title("Physics vs. Boundary", fontsize=18, fontweight="bold")
@@ -188,10 +191,10 @@ def plot_pairwise_pareto_fronts():
         # 2. Domain vs Complexity (Log-Linear)
         ax = axes[1]
         if mask_dominated.any():
-            ax.scatter(df[mask_dominated]["mse_domain"], df[mask_dominated]["tree_size"], 
-                       c='lightgray', s=20, alpha=0.3)
-        ax.scatter(df[mask_rank1]["mse_domain"], df[mask_rank1]["tree_size"], 
-                   c='#E67E22', s=60, edgecolors='white', linewidth=0.5, zorder=10)
+            ax.scatter(df[mask_dominated]["mse_domain"], df[mask_dominated]["tree_size"],
+                       c=GRAY, s=25, alpha=0.5, zorder=1)
+        ax.scatter(df[mask_rank1]["mse_domain"], df[mask_rank1]["tree_size"],
+                   c=LIME, s=60, edgecolors='k', linewidth=0.5, zorder=10)
         ax.set_xscale("log")
         ax.set_xlabel("Domain MSE", fontsize=16); ax.set_ylabel("Complexity (Nodes)", fontsize=16)
         ax.set_title("Physics vs. Complexity", fontsize=18, fontweight="bold")
@@ -200,10 +203,10 @@ def plot_pairwise_pareto_fronts():
         # 3. Boundary vs Complexity (Log-Linear)
         ax = axes[2]
         if mask_dominated.any():
-            ax.scatter(df[mask_dominated]["mse_boundary"], df[mask_dominated]["tree_size"], 
-                       c='lightgray', s=20, alpha=0.3)
-        ax.scatter(df[mask_rank1]["mse_boundary"], df[mask_rank1]["tree_size"], 
-                   c='#27AE60', s=60, edgecolors='white', linewidth=0.5, zorder=10)
+            ax.scatter(df[mask_dominated]["mse_boundary"], df[mask_dominated]["tree_size"],
+                       c=GRAY, s=25, alpha=0.5, zorder=1)
+        ax.scatter(df[mask_rank1]["mse_boundary"], df[mask_rank1]["tree_size"],
+                   c=LIME, s=60, edgecolors='k', linewidth=0.5, zorder=10)
         ax.set_xscale("log")
         ax.set_xlabel("Boundary MSE", fontsize=16); ax.set_ylabel("Complexity (Nodes)", fontsize=16)
         ax.set_title("Boundary vs. Complexity", fontsize=18, fontweight="bold")
@@ -218,4 +221,8 @@ def plot_pairwise_pareto_fronts():
 if __name__ == "__main__":
     plot_parsimony()
     plot_pareto_fronts()
-    plot_pairwise_pareto_fronts()
+    # plot_pairwise_pareto_fronts() ya no se llama: redundante con
+    # scripts/plot_pareto.py (mismo plot pareado por EDP, con el estilo
+    # gris/verde-lima correcto sin interpolacion de lineas) — esa es ahora la
+    # unica fuente para esas figuras, copiadas a report/figures/ por
+    # generate_report.sh.

@@ -1,2 +1,0 @@
-method,pde,dim,mse_domain,mse_boundary,rank
-PINN,HarmonicOscillator,2,0.0003280607,0.0000004316,1

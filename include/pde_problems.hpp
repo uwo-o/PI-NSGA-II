@@ -38,6 +38,24 @@ struct PDEPriors {
     bool scale_invariant = false; // Invarianza de escala (Auto-similaridad)
     int  max_deriv_order = 0;     // ADN Diferencial (Orden máximo de derivación)
     bool is_conservative = false; // Leyes de conservación (Divergencia nula)
+
+    // Separabilidad de variables (solo 2D): si el OPERADOR de la EDP (no la
+    // solucion — eso seria fuga de informacion, ver comentario en
+    // probe_priors()) es consistente con u(x,y)=f(x)+g(y) o u(x,y)=f(x)g(y),
+    // toda la poblacion inicial se construye directamente en esa forma en vez
+    // de arboles genericos — inspirado en el metodo clasico de separacion de
+    // variables. Mutuamente excluyentes en la practica (se prioriza aditiva
+    // si ambas dieran positivo, poco probable).
+    bool additive_separable = false;
+    bool multiplicative_separable = false;
+
+    // Separabilidad triple (2D dependiente del tiempo): u(x,y,t)=f(x)g(y)h(t).
+    // Mismo sondeo generico sobre el OPERADOR (no la solucion) que la
+    // separabilidad de 2 variables, extendido a probar las 3 derivadas
+    // cruzadas (xy, xt, yt). Se activa para CUALQUIER EDP dependiente del
+    // tiempo que pase el sondeo, sin excluir ningun tipo por nombre — asi no
+    // es una solucion "hecha a medida" de un solo problema del benchmark.
+    bool triple_separable = false;
 };
 
 // ─── Problema PDE ─────────────────────────────────────────────────────────────

@@ -60,6 +60,7 @@ enum class NodeType {
     ERC, CONST_I, CONST_PI, CONST_E,
     CONST_G, CONST_C, CONST_HBAR, CONST_KB, CONST_EPS0,
     SERIES,
+    ROTATE,
     UNKNOWN
     };
 // ─── Estructura Dual (Valor + Derivadas) para AD ──────────────────────────────
@@ -121,6 +122,13 @@ namespace Config {
     extern int    RAR_ELITE_COUNT;   
     extern double RAR_RANDOM_RATIO;  
     extern bool   GENERAL_MODE;
+
+    // Si es false, se desactiva el ansatz de frontera exacta (U=L+B*N) — la
+    // frontera vuelve a ser una penalizacion blanda real (compute_boundary_error)
+    // en vez de forzarse a 0 por construccion, y el arbol resuelve la EDP
+    // "a pelo". Distinto de GENERAL_MODE (que ademas apaga la frontera por
+    // completo, ni siquiera como penalizacion blanda).
+    extern bool   USE_ANSATZ;
 
     extern int    CORES;
     }

@@ -58,7 +58,27 @@ def read_pysr_metrics():
     distinta capitalización del nombre de PDE (bug conocido, no se corrige acá)
     — nos quedamos con la última leída por clave normalizada."""
     rows = {}
-    for path in glob.glob(os.path.join(RESULTS_DIR, "*_pysr_metrics.csv")):
+    # Recursivo: run_pysr.py guarda en results/run_{id}/, no en la raiz de
+    # results/ — el glob no-recursivo de antes nunca encontraba nada.
+    for path in glob.glob(os.path.join(RESULTS_DIR, "**", "*_pysr_metrics.csv"), recursive=True):
+        with open(path) as f:
+            for row in csv.DictReader(f):
+                pde = row.get("pde", "").strip()
+                if not pde:
+                    continue
+                rows[normalize_pde_key(pde) + "|" + pde] = {
+                    "pde": pde,
+                    "mse_total": float(row["mse_total"]),
+                    "runtime_s": float(row.get("runtime_s", 0.0)),
+                }
+    return rows
+
+
+def read_sindy_metrics():
+    """Analogo a read_pysr_metrics() para run_pysindy.py (results/run_{id}/
+    {pde}_sindy_metrics.csv)."""
+    rows = {}
+    for path in glob.glob(os.path.join(RESULTS_DIR, "**", "*_sindy_metrics.csv"), recursive=True):
         with open(path) as f:
             for row in csv.DictReader(f):
                 pde = row.get("pde", "").strip()
@@ -171,15 +191,17 @@ def make_latex_table(comparisons):
 
 def main():
     pysr = read_pysr_metrics()
+    sindy = read_sindy_metrics()
     pisr = read_pisr_results()
 
     # Unimos por clave canónica (normalizada + case-insensitive) para no perder
     # matches por inconsistencias de capitalización entre corridas de distintos
     # scripts (ej. 'Airy_1D' de nuestro lado vs 'airy_1D' del lado de PySR).
     pysr_by_key = {canonical_key(v["pde"]): v for v in pysr.values()}
+    sindy_by_key = {canonical_key(v["pde"]): v for v in sindy.values()}
     pisr_by_key = {canonical_key(v["pde"]): v for v in pisr.values()}
 
-    pdes = sorted(set(pisr_by_key.keys()) | set(pysr_by_key.keys()))
+    pdes = sorted(set(pisr_by_key.keys()) | set(pysr_by_key.keys()) | set(sindy_by_key.keys()))
 
     out_rows = []
     comparisons = []
@@ -190,8 +212,12 @@ def main():
     for pde in pdes:
         p_ours = pisr_by_key.get(pde)
         p_pysr = pysr_by_key.get(pde)
+        p_sindy = sindy_by_key.get(pde)
         n_rows = count_data_rows(pde)
         pysr_points = min(PYSR_TRAIN_CAP, n_rows) if n_rows is not None else None
+        # PySINDy ajusta sobre toda la trayectoria del grid (no subsamplea
+        # como PySR), asi que usa todos los puntos disponibles.
+        sindy_points = n_rows
         comparisons.append((pde, p_ours, p_pysr, pysr_points))
 
         if p_ours:
@@ -203,11 +229,20 @@ def main():
             print(f"{pde:<20} | {'PySR':<14} | {pts_str:>18} | {p_pysr['mse_total']:>14.3e} | {p_pysr['runtime_s']:>9.1f}s")
             out_rows.append({"pde": pde, "method": "PySR", "labeled_points_used": pysr_points,
                               "mse_total": p_pysr["mse_total"], "runtime_s": p_pysr["runtime_s"]})
+        if p_sindy:
+            pts_str = str(sindy_points) if sindy_points is not None else "?"
+            print(f"{pde:<20} | {'PySINDy':<14} | {pts_str:>18} | {p_sindy['mse_total']:>14.3e} | {p_sindy['runtime_s']:>9.1f}s")
+            out_rows.append({"pde": pde, "method": "PySINDy", "labeled_points_used": sindy_points,
+                              "mse_total": p_sindy["mse_total"], "runtime_s": p_sindy["runtime_s"]})
 
         if p_ours and p_pysr:
             verdict = "PISR-NSGA-II iguala o mejora con 0 datos" if p_ours["mse_total"] <= p_pysr["mse_total"] \
                 else f"PySR mejor por {p_ours['mse_total'] / max(p_pysr['mse_total'], 1e-300):.1f}x (pero usó {pysr_points} puntos)"
             print(f"{'':<20} | {'→ ' + verdict:<86}")
+        if p_ours and p_sindy:
+            verdict_s = "PISR-NSGA-II iguala o mejora con 0 datos" if p_ours["mse_total"] <= p_sindy["mse_total"] \
+                else f"PySINDy mejor por {p_ours['mse_total'] / max(p_sindy['mse_total'], 1e-300):.1f}x (pero usó {sindy_points} puntos)"
+            print(f"{'':<20} | {'→ (SINDy) ' + verdict_s:<86}")
         print("-" * 100)
 
     out_path = os.path.join(RESULTS_DIR, "data_efficiency_comparison.csv")

@@ -1,2 +1,0 @@
-method,pde,dim,mse_domain,mse_boundary,runtime_s,rank
-DeepXDE,Navier-Stokes,2,0.0000027860,0.0000003082,7281.7791,1

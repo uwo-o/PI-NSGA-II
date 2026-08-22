@@ -54,6 +54,12 @@ private:
     PIIndividual best_ever_;
     bool has_best_ever_ = false;
     int current_gen_ = 0;
+
+    // Si el ansatz de frontera exacta aplica, mse_boundary es constante (0)
+    // para todo individuo — se excluye como objetivo de NSGA-II (dominancia +
+    // crowding distance) en vez de dejarlo empatado, ver comentario junto a
+    // fast_non_dominated_sort en pi_solver.cpp. Calculado una vez en run().
+    bool use_boundary_objective_ = true;
     int max_gen_ = 0;
 
     PIIndividual random_individual();
