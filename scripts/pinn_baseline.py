@@ -155,8 +155,11 @@ def build_problem(pde_name, dim):
     def ref_fisher_2d(x,y):     return 1.0 / (1.0 + np.exp(-(x + y)))
     def ref_duffing_1d(x):      return 1.0 / np.cosh(x)
     def ref_duffing_2d(x,y):    return 1.0 / np.cosh(x + y)
-    def ref_tf_1d(x):           return 1.0 / (x + 0.5)
-    def ref_tf_2d(x,y):         return 1.0 / (x + y + 0.5)
+    # Ancla fisica real (y(0)=1, y(1)~=0.4240, valor tabulado estandar de la
+    # ecuacion de Thomas-Fermi) — antes 1/(x+0.5), un placeholder sin relacion
+    # con la fisica real (ver mismo fix en pde_problems.cpp::exact()).
+    def ref_tf_1d(x):           return 1.0 - 0.5760 * np.abs(x)
+    def ref_tf_2d(x,y):         return 1.0 - 0.5760 * np.sqrt(x**2 + y**2)
     def ref_bratu(x,y):         return np.log(2.0 / (np.cosh(x + y)**2))
     def ref_allen_cahn(x,y):
         eps = np.sqrt(0.01)
@@ -354,18 +357,36 @@ def build_problem(pde_name, dim):
 
     fn1d, fn2d = exact_map.get((pde_name, dim), (None, None))
 
+    # Thomas-Fermi: su dominio real es semi-infinito [0,inf) con la UNICA
+    # condicion de frontera genuina en el origen (phi(0)=1, parte de la
+    # definicion del problema). El valor en x=1 (~0.4240) no es un dato del
+    # problema — es el valor de la solucion real tabulado externamente (Bush &
+    # Caldwell), que solo se conoce habiendo resuelto la EDO. Darselo a DeepXDE
+    # como condicion de Dirichlet en x=1 (como hacia el codigo anterior, vía
+    # "on_bnd" aplicado a TODO el borde) es la misma fuga de informacion que ya
+    # se corrigio del lado de PISR-NSGA-II (ver apply_boundary_ansatz en
+    # pi_solver.cpp) — para que la comparacion sea justa, ambos metodos deben
+    # recibir exactamente la misma informacion de frontera.
+    is_thomas_fermi = (pde_name == "Thomas-Fermi")
+
     if dim == 1:
         exact_fn = fn1d
         def bc_val(x, _):
             return np.atleast_2d(exact_fn(x[:, 0])).T
-        bcs = [dde.icbc.DirichletBC(geom, lambda x: bc_val(x, None),
-                                     lambda _, on_bnd: on_bnd)]
+        if is_thomas_fermi:
+            on_boundary_fn = lambda x, on_bnd: on_bnd and np.isclose(x[0], 0.0)
+        else:
+            on_boundary_fn = lambda _, on_bnd: on_bnd
+        bcs = [dde.icbc.DirichletBC(geom, lambda x: bc_val(x, None), on_boundary_fn)]
     else:
         exact_fn = fn2d
         def bc_val_2d(x, _):
             return np.atleast_2d(exact_fn(x[:, 0], x[:, 1])).T
-        bcs = [dde.icbc.DirichletBC(geom, lambda x: bc_val_2d(x, None),
-                                     lambda _, on_bnd: on_bnd)]
+        if is_thomas_fermi:
+            on_boundary_fn = lambda x, on_bnd: on_bnd and np.isclose(x[0], 0.0) and np.isclose(x[1], 0.0)
+        else:
+            on_boundary_fn = lambda _, on_bnd: on_bnd
+        bcs = [dde.icbc.DirichletBC(geom, lambda x: bc_val_2d(x, None), on_boundary_fn)]
 
     # ── Arquitectura de red: más profunda para ecuaciones no lineales ─────────
     nonlinear = {"NonlinearPoisson", "Liouville", "Sine-Gordon", "Airy", "Navier-Stokes", 

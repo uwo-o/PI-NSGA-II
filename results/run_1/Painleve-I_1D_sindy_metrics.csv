@@ -1,2 +1,2 @@
-method,pde,best_mse_domain,best_mse_boundary,mse_total,runtime_s
-PySINDy,Painleve-I_1D,2.481561295944069e-25,0.0,2.481561295944069e-25,0.006050586700439453
+method,pde,noise_pct,best_mse_domain,best_mse_boundary,mse_total,runtime_s
+PySINDy,Painleve-I_1D,0.0,1.3283683617816868e-05,0.0,1.3283683617816868e-05,0.007326841354370117

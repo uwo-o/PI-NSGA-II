@@ -1,0 +1,2 @@
+method,pde,noise_pct,best_mse_domain,best_mse_boundary,mse_total,runtime_s
+PySR,Fisher_2D,0.2,5.8628919364870944e-05,0.0,5.8628919364870944e-05,117.86262321472168

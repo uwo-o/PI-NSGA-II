@@ -38,11 +38,16 @@ def main():
         ("Duffing", 1): r"\text{Numerical (Ground Truth)}",
         ("Duffing", 2): r"\text{Numerical (Ground Truth)}",
         # La ecuacion de Thomas-Fermi real (u''=u^{1.5}/\sqrt{x}) no tiene solucion
-        # cerrada conocida (por eso se resuelve por shooting/RK4 para la verdad
-        # numerica) — esto es solo la funcion usada como ancla de frontera/bc,
-        # no la solucion exacta de la EDO no lineal.
-        ("Thomas-Fermi", 1): r"\frac{1}{x+0.5} \; \text{(ancla de frontera, no exacta — ver verdad numerica)}",
-        ("Thomas-Fermi", 2): r"\frac{1}{x+y+0.5} \; \text{(ancla de frontera, no exacta — ver verdad numerica)}",
+        # cerrada conocida — se resuelve por shooting/RK4 para la verdad
+        # numerica (ver NumericalSolver), igual que Airy/Fisher/Duffing/etc.
+        # Antes esta fila mostraba una formula "ancla de frontera" (ademas ya
+        # desactualizada tras el fix de fuga de informacion de hoy — el ancla
+        # real ahora solo fija el origen, no una formula completa) — mostrar
+        # cualquier formula cerrada ahi era enganoso, no es la verdad exacta
+        # de la EDO no lineal. Se deja igual que el resto de las EDPs
+        # numericas: "Numerical (Ground Truth)", sin texto adicional.
+        ("Thomas-Fermi", 1): r"\text{Numerical (Ground Truth)}",
+        ("Thomas-Fermi", 2): r"\text{Numerical (Ground Truth)}",
         ("Laplace", 1): r"x",
         ("Poisson", 1): r"\sin(\pi x)",
         ("HarmonicOscillator", 1): r"e^{-x^2/2}",

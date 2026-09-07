@@ -60,16 +60,31 @@ enum class NodeType {
     ERC, CONST_I, CONST_PI, CONST_E,
     CONST_G, CONST_C, CONST_HBAR, CONST_KB, CONST_EPS0,
     SERIES,
-    ROTATE,
     UNKNOWN
     };
 // ─── Estructura Dual (Valor + Derivadas) para AD ──────────────────────────────
+// Campos de 2do/3er/4to orden agregados para el residuo EXACTO de Navier-Stokes
+// (biharmonico + gradiente de vorticidad, ver PDEProblem::compute_residual),
+// que antes se aproximaba con diferencias finitas. dxy/dxt/dyt no los usa
+// ningun residuo directamente, pero son necesarios como andamiaje: la regla de
+// Leibniz para MUL y la de Faa di Bruno para composiciones (SIN, EXP, ...)
+// requieren esos mixtos de 2do orden para propagar correctamente dxxy, dxyy,
+// dxxyy, dxxt, dyyt de orden superior (ver apply_composition/apply_mul_ad en
+// tree_node.cpp). Todos por defecto en 0, igual que los campos existentes —
+// esto es estrictamente aditivo: ninguna EDP fuera de Navier-Stokes/-Unsteady
+// llega a leer estos campos, asi que su comportamiento no cambia en nada.
 struct AD {
     Complex v;   // valor
     Complex dx, dy, dt;
     Complex dxx, dyy, dtt;
-    
-    AD(Complex val = 0.0) : v(val), dx(0), dy(0), dt(0), dxx(0), dyy(0), dtt(0) {}
+    Complex dxy, dxt, dyt;             // 2do orden mixto (andamiaje)
+    Complex dxxx, dxxy, dxyy, dyyy;    // 3er orden espacial puro/mixto
+    Complex dxxt, dyyt;                // 3er orden espacio(2)-tiempo(1)
+    Complex dxxxx, dxxyy, dyyyy;       // 4to orden espacial puro/mixto (biharmonico)
+
+    AD(Complex val = 0.0) : v(val), dx(0), dy(0), dt(0), dxx(0), dyy(0), dtt(0),
+        dxy(0), dxt(0), dyt(0), dxxx(0), dxxy(0), dxyy(0), dyyy(0),
+        dxxt(0), dyyt(0), dxxxx(0), dxxyy(0), dyyyy(0) {}
 };
 
 // ─── Punto en el dominio ──────────────────────────────────────────────────────

@@ -1,0 +1,2 @@
+method,pde,noise_pct,best_mse_domain,best_mse_boundary,mse_total,runtime_s
+PySINDy,HarmonicOscillator_1D,0.1,0.010605767898781425,0.0,0.010605767898781425,0.0054187774658203125

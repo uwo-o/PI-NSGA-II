@@ -1,0 +1,2 @@
+method,pde,noise_pct,best_mse_domain,best_mse_boundary,mse_total,runtime_s
+PySR,Poisson_1D,0.05,6.082647541891346e-07,0.0,6.082647541891346e-07,37.89192771911621

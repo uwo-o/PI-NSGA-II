@@ -6,7 +6,7 @@ import time
 import pysindy as ps
 
 
-def run_pysindy_benchmark(data_path, pde_name, run_id):
+def run_pysindy_benchmark(data_path, pde_name, run_id, noise_pct=0.0):
     """
     Corre PySINDy sobre el grid 1D (x, u_exact) de una EDO de frontera.
     PySINDy descubre sistemas dX/dt = f(X) a partir de series/trayectorias, no
@@ -30,11 +30,27 @@ def run_pysindy_benchmark(data_path, pde_name, run_id):
     x_col = "x" if "x" in cols else "t"
     df = df.sort_values(by=x_col).reset_index(drop=True)
     x = df[x_col].values
-    u = df["u_exact"].values if "u_exact" in cols else df["u"].values
+    u_true = df["u_exact"].values if "u_exact" in cols else df["u"].values
 
-    if len(x) < 5 or not np.all(np.isfinite(u)):
+    if len(x) < 5 or not np.all(np.isfinite(u_true)):
         print(f"[SKIP] {pde_name}: datos insuficientes o no finitos para PySINDy.")
         return
+
+    # Ruido gaussiano relativo al std de la señal, simulando mediciones reales
+    # con error (ver mismo criterio en run_pysr.py). Para PySINDy esto es
+    # particularmente exigente: v=du/dx y u''=d²u/dx² se obtienen por
+    # diferencias finitas SOBRE la señal ruidosa, y diferenciar amplifica el
+    # ruido de alta frecuencia — es precisamente el modo de fallo real que
+    # este experimento busca exponer (a diferencia de PISR-NSGA-II, que nunca
+    # diferencia datos medidos: sus derivadas son AD exacto sobre el arbol
+    # candidato, no sobre una señal ruidosa). El SCORING final sigue siendo
+    # contra u_true limpia.
+    if noise_pct > 0.0:
+        rng = np.random.RandomState(2000 + run_id)
+        sigma = noise_pct * np.std(u_true)
+        u = u_true + rng.normal(0.0, sigma, size=u_true.shape)
+    else:
+        u = u_true
 
     dt = float(np.median(np.diff(x)))
     diff_method = ps.FiniteDifference(order=2)
@@ -87,8 +103,10 @@ def run_pysindy_benchmark(data_path, pde_name, run_id):
         print(f"[WARN] No se pudo simular la trayectoria descubierta: {e}")
         u_approx = np.full_like(u, np.nan)
 
+    # Scoring SIEMPRE contra u_true (limpia), aunque el ajuste haya visto u
+    # ruidosa — mismo criterio que run_pysr.py.
     valid = np.isfinite(u_approx)
-    mse = float(np.mean((u[valid] - u_approx[valid]) ** 2)) if valid.any() else float("nan")
+    mse = float(np.mean((u_true[valid] - u_approx[valid]) ** 2)) if valid.any() else float("nan")
 
     dim = 1
     suffix = f"_{dim}D"
@@ -96,17 +114,20 @@ def run_pysindy_benchmark(data_path, pde_name, run_id):
     res_dir = os.path.join(out_dir, "..", "results", f"run_{run_id}")
     os.makedirs(res_dir, exist_ok=True)
 
-    df_out = pd.DataFrame({x_col: x, "u_exact": u, "u_approx": u_approx})
-    df_out.to_csv(os.path.join(res_dir, f"grid_{pde_name}{suffix}_PySINDy.csv"), index=False)
+    noise_suffix = f"_noise{int(round(noise_pct * 100))}pct" if noise_pct > 0.0 else ""
+
+    df_out = pd.DataFrame({x_col: x, "u_exact": u_true, "u_approx": u_approx})
+    df_out.to_csv(os.path.join(res_dir, f"grid_{pde_name}{suffix}_PySINDy{noise_suffix}.csv"), index=False)
 
     pd.DataFrame([{
         "method": "PySINDy",
         "pde": f"{pde_name}{suffix}",
+        "noise_pct": noise_pct,
         "best_mse_domain": mse,
         "best_mse_boundary": 0.0,
         "mse_total": mse,
         "runtime_s": runtime,
-    }]).to_csv(os.path.join(res_dir, f"{pde_name}{suffix}_sindy_metrics.csv"), index=False)
+    }]).to_csv(os.path.join(res_dir, f"{pde_name}{suffix}_sindy_metrics{noise_suffix}.csv"), index=False)
 
 
 if __name__ == "__main__":
@@ -114,6 +135,8 @@ if __name__ == "__main__":
     parser.add_argument("--dataset", type=str, required=True, help="Path to numerical simulation data")
     parser.add_argument("--problem", type=str, required=True, help="Name of the PDE benchmark")
     parser.add_argument("--run_id", type=int, default=1, help="Run ID for multiple runs")
+    parser.add_argument("--noise_pct", type=float, default=0.0,
+                         help="Ruido gaussiano relativo (0.05 = 5%% del std de la señal) agregado a los datos de entrenamiento. 0 = datos limpios (default).")
     args = parser.parse_args()
 
-    run_pysindy_benchmark(args.dataset, args.problem, args.run_id)
+    run_pysindy_benchmark(args.dataset, args.problem, args.run_id, args.noise_pct)

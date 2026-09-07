@@ -7,42 +7,71 @@
 extern int last_special_choice;
 
 // ─── Polinomios Ortogonales (Motor Físico) ───────────────────────────────────
+static void eval_poly_all(NodeType type, int n, double x, double& v, double& dv, double& dvv, double& dvvv, double& dvvvv);
+// Sobrecarga original (value + 1er/2do derivada) — se mantiene intacta para no
+// tocar ningun call site existente; delega en la version extendida de abajo.
 static void eval_poly_all(NodeType type, int n, double x, double& v, double& dv, double& dvv) {
-    if (n < 0 || n > 10 || !std::isfinite(x)) { v = NAN; dv = NAN; dvv = NAN; return; }
-    if (n == 0) { v = 1.0; dv = 0.0; dvv = 0.0; return; }
+    double dvvv, dvvvv;
+    eval_poly_all(type, n, x, v, dv, dvv, dvvv, dvvvv);
+}
+// Version extendida (value + 1ro..4to derivada w.r.t. su argumento escalar x),
+// necesaria para propagar dxxx/dxxy/.../dxxyy a traves de un nodo LEGENDRE/
+// HERMITE/CHEBYSHEV/LAGUERRE via apply_composition (ver mas abajo). Se obtiene
+// diferenciando la MISMA recurrencia de 3 terminos una vez mas en cada caso —
+// el patron general es: si P_n(x) = A(x)*P_{n-1}(x) + B*P_{n-2}(x) con A lineal
+// en x (o constante), entonces d^m/dx^m[A(x)*P_{n-1}] = A(x)*P_{n-1}^(m) +
+// m*A'(x)*P_{n-1}^(m-1) (Leibniz truncado: A'' = 0 para todas las familias
+// aca, A es a lo sumo lineal en x), y B*P_{n-2} se diferencia trivial (B es
+// constante en x). Verificado a mano contra la recurrencia existente para
+// m=1,2 antes de extender a m=3,4 (coincide termino a termino).
+static void eval_poly_all(NodeType type, int n, double x, double& v, double& dv, double& dvv, double& dvvv, double& dvvvv) {
+    if (n < 0 || n > 10 || !std::isfinite(x)) { v = dv = dvv = dvvv = dvvvv = NAN; return; }
+    if (n == 0) { v = 1.0; dv = dvv = dvvv = dvvvv = 0.0; return; }
     if (n == 1) {
-        if (type == NodeType::HERMITE) { v = 2.0*x; dv = 2.0; dvv = 0.0; }
-        else if (type == NodeType::LAGUERRE) { v = 1.0 - x; dv = -1.0; dvv = 0.0; }
-        else { v = x; dv = 1.0; dvv = 0.0; }
+        if (type == NodeType::HERMITE) { v = 2.0*x; dv = 2.0; }
+        else if (type == NodeType::LAGUERRE) { v = 1.0 - x; dv = -1.0; }
+        else { v = x; dv = 1.0; }
+        dvv = dvvv = dvvvv = 0.0;
         return;
     }
 
     double p0 = 1.0, p1 = (type == NodeType::HERMITE) ? 2.0*x : ((type == NodeType::LAGUERRE) ? 1.0-x : x);
     double dp0 = 0.0, dp1 = (type == NodeType::HERMITE) ? 2.0 : ((type == NodeType::LAGUERRE) ? -1.0 : 1.0);
     double ddp0 = 0.0, ddp1 = 0.0;
+    double dddp0 = 0.0, dddp1 = 0.0;
+    double ddddp0 = 0.0, ddddp1 = 0.0;
 
     for (int k = 1; k < n; ++k) {
-        double cur_v, cur_dv, cur_dvv;
+        double cur_v, cur_dv, cur_dvv, cur_dvvv, cur_dvvvv;
         if (type == NodeType::LEGENDRE) {
-            cur_v = ((2.0*k + 1.0)*x*p1 - k*p0) / (k + 1.0);
-            cur_dv = ((2.0*k + 1.0)*(p1 + x*dp1) - k*dp0) / (k + 1.0);
-            cur_dvv = ((2.0*k + 1.0)*(2.0*dp1 + x*ddp1) - k*ddp0) / (k + 1.0);
+            cur_v    = ((2.0*k + 1.0)*x*p1 - k*p0) / (k + 1.0);
+            cur_dv   = ((2.0*k + 1.0)*(p1 + x*dp1) - k*dp0) / (k + 1.0);
+            cur_dvv  = ((2.0*k + 1.0)*(2.0*dp1 + x*ddp1) - k*ddp0) / (k + 1.0);
+            cur_dvvv = ((2.0*k + 1.0)*(3.0*ddp1 + x*dddp1) - k*dddp0) / (k + 1.0);
+            cur_dvvvv= ((2.0*k + 1.0)*(4.0*dddp1 + x*ddddp1) - k*ddddp0) / (k + 1.0);
         } else if (type == NodeType::CHEBYSHEV) {
-            cur_v = 2.0*x*p1 - p0;
-            cur_dv = 2.0*(p1 + x*dp1) - dp0;
-            cur_dvv = 2.0*(2.0*dp1 + x*ddp1) - ddp0;
+            cur_v    = 2.0*x*p1 - p0;
+            cur_dv   = 2.0*(p1 + x*dp1) - dp0;
+            cur_dvv  = 2.0*(2.0*dp1 + x*ddp1) - ddp0;
+            cur_dvvv = 2.0*(3.0*ddp1 + x*dddp1) - dddp0;
+            cur_dvvvv= 2.0*(4.0*dddp1 + x*ddddp1) - ddddp0;
         } else if (type == NodeType::HERMITE) {
-            cur_v = 2.0*x*p1 - 2.0*k*p0;
-            cur_dv = 2.0*(p1 + x*dp1) - 2.0*k*dp0;
-            cur_dvv = 2.0*(2.0*dp1 + x*ddp1) - 2.0*k*ddp0;
+            cur_v    = 2.0*x*p1 - 2.0*k*p0;
+            cur_dv   = 2.0*(p1 + x*dp1) - 2.0*k*dp0;
+            cur_dvv  = 2.0*(2.0*dp1 + x*ddp1) - 2.0*k*ddp0;
+            cur_dvvv = 2.0*(3.0*ddp1 + x*dddp1) - 2.0*k*dddp0;
+            cur_dvvvv= 2.0*(4.0*dddp1 + x*ddddp1) - 2.0*k*ddddp0;
         } else { // LAGUERRE
-            cur_v = ((2.0*k + 1.0 - x)*p1 - k*p0) / (k + 1.0);
-            cur_dv = ((2.0*k + 1.0 - x)*dp1 - p1 - k*dp0) / (k + 1.0);
-            cur_dvv = ((2.0*k + 1.0 - x)*ddp1 - 2.0*dp1 - k*ddp0) / (k + 1.0);
+            cur_v    = ((2.0*k + 1.0 - x)*p1 - k*p0) / (k + 1.0);
+            cur_dv   = ((2.0*k + 1.0 - x)*dp1 - p1 - k*dp0) / (k + 1.0);
+            cur_dvv  = ((2.0*k + 1.0 - x)*ddp1 - 2.0*dp1 - k*ddp0) / (k + 1.0);
+            cur_dvvv = ((2.0*k + 1.0 - x)*dddp1 - 3.0*ddp1 - k*dddp0) / (k + 1.0);
+            cur_dvvvv= ((2.0*k + 1.0 - x)*ddddp1 - 4.0*dddp1 - k*ddddp0) / (k + 1.0);
         }
         p0 = p1; p1 = cur_v; dp0 = dp1; dp1 = cur_dv; ddp0 = ddp1; ddp1 = cur_dvv;
+        dddp0 = dddp1; dddp1 = cur_dvvv; ddddp0 = ddddp1; ddddp1 = cur_dvvvv;
     }
-    v = p1; dv = dp1; dvv = ddp1;
+    v = p1; dv = dp1; dvv = ddp1; dvvv = dddp1; dvvvv = ddddp1;
 }
 
 Complex apply_unary(NodeType type, Complex v) {
@@ -55,6 +84,82 @@ Complex apply_unary(NodeType type, Complex v) {
     return 0.0;
 }
 
+// ─── Composicion generica h(x,y,t) = f(g(x,y,t)) via la regla de la cadena
+// multivariante (Faa di Bruno) hasta 4to orden total, dados f0..f4 = f, f',
+// f'', f''', f'''' evaluados en g.v. Se deriva UNA vez (ver comentario junto a
+// AD en common.hpp) y se reusa para TODAS las funciones unarias de un solo
+// argumento (SIN, COS, EXP, LOG, TANH, SINH, COSH, SQR, GAUSSIAN, y el
+// reciproco 1/u usado por DIV, y log/exp usados por POW) en vez de repetir la
+// misma algebra 9+ veces con riesgo de un error de signo/coeficiente distinto
+// cada vez. Formulas (derivadas a mano, diferenciando sucesivamente):
+//   hxx  = f2*gx^2 + f1*gxx                         (analogo hyy, htt, hxy, hxt, hyt)
+//   hxxx = f3*gx^3 + 3*f2*gx*gxx + f1*gxxx           (analogo hyyy)
+//   hxxy = f3*gx^2*gy + f2*(2*gx*gxy + gy*gxx) + f1*gxxy   (analogo hxyy con x<->y, hxxt/hyyt con y->t)
+//   hxxxx = f4*gx^4 + 6*f3*gx^2*gxx + f2*(3*gxx^2+4*gx*gxxx) + f1*gxxxx  (analogo hyyyy)
+//   hxxyy = f4*gx^2*gy^2 + f3*(4*gx*gy*gxy+gx^2*gyy+gy^2*gxx)
+//         + f2*(2*gxy^2+2*gx*gxyy+2*gy*gxxy+gxx*gyy) + f1*gxxyy
+static AD apply_composition(Complex f0, Complex f1, Complex f2, Complex f3, Complex f4, const AD& g) {
+    AD r;
+    r.v = f0;
+    r.dx = f1*g.dx; r.dy = f1*g.dy; r.dt = f1*g.dt;
+    r.dxx = f2*g.dx*g.dx + f1*g.dxx;
+    r.dyy = f2*g.dy*g.dy + f1*g.dyy;
+    r.dtt = f2*g.dt*g.dt + f1*g.dtt;
+    r.dxy = f2*g.dx*g.dy + f1*g.dxy;
+    r.dxt = f2*g.dx*g.dt + f1*g.dxt;
+    r.dyt = f2*g.dy*g.dt + f1*g.dyt;
+    r.dxxx = f3*g.dx*g.dx*g.dx + 3.0*f2*g.dx*g.dxx + f1*g.dxxx;
+    r.dyyy = f3*g.dy*g.dy*g.dy + 3.0*f2*g.dy*g.dyy + f1*g.dyyy;
+    r.dxxy = f3*g.dx*g.dx*g.dy + f2*(2.0*g.dx*g.dxy + g.dy*g.dxx) + f1*g.dxxy;
+    r.dxyy = f3*g.dy*g.dy*g.dx + f2*(2.0*g.dy*g.dxy + g.dx*g.dyy) + f1*g.dxyy;
+    r.dxxt = f3*g.dx*g.dx*g.dt + f2*(2.0*g.dx*g.dxt + g.dt*g.dxx) + f1*g.dxxt;
+    r.dyyt = f3*g.dy*g.dy*g.dt + f2*(2.0*g.dy*g.dyt + g.dt*g.dyy) + f1*g.dyyt;
+    r.dxxxx = f4*(g.dx*g.dx*g.dx*g.dx) + 6.0*f3*(g.dx*g.dx*g.dxx) + f2*(3.0*g.dxx*g.dxx + 4.0*g.dx*g.dxxx) + f1*g.dxxxx;
+    r.dyyyy = f4*(g.dy*g.dy*g.dy*g.dy) + 6.0*f3*(g.dy*g.dy*g.dyy) + f2*(3.0*g.dyy*g.dyy + 4.0*g.dy*g.dyyy) + f1*g.dyyyy;
+    r.dxxyy = f4*(g.dx*g.dx*g.dy*g.dy)
+            + f3*(4.0*g.dx*g.dy*g.dxy + g.dx*g.dx*g.dyy + g.dy*g.dy*g.dxx)
+            + f2*(2.0*g.dxy*g.dxy + 2.0*g.dx*g.dxyy + 2.0*g.dy*g.dxxy + g.dxx*g.dyy)
+            + f1*g.dxxyy;
+    return r;
+}
+
+// ─── Producto L*R via la regla de Leibniz multivariante hasta 4to orden total
+// (derivada a mano y verificada termino a termino contra la expansion directa
+// del binomio para cada multi-indice — ver comentario en common.hpp). MUL,
+// DIV (=L * 1/R via apply_composition con f(u)=1/u) y POW (=exp(R*log(L)) via
+// dos aplicaciones de apply_composition + este producto) se construyen sobre
+// esta unica funcion en vez de derivar cada regla por separado.
+static AD apply_mul_ad(const AD& L, const AD& R) {
+    AD r;
+    r.v = L.v*R.v;
+    r.dx = L.dx*R.v + L.v*R.dx; r.dy = L.dy*R.v + L.v*R.dy; r.dt = L.dt*R.v + L.v*R.dt;
+    r.dxx = L.dxx*R.v + 2.0*L.dx*R.dx + L.v*R.dxx;
+    r.dyy = L.dyy*R.v + 2.0*L.dy*R.dy + L.v*R.dyy;
+    r.dtt = L.dtt*R.v + 2.0*L.dt*R.dt + L.v*R.dtt;
+    r.dxy = L.dxy*R.v + L.dx*R.dy + L.dy*R.dx + L.v*R.dxy;
+    r.dxt = L.dxt*R.v + L.dx*R.dt + L.dt*R.dx + L.v*R.dxt;
+    r.dyt = L.dyt*R.v + L.dy*R.dt + L.dt*R.dy + L.v*R.dyt;
+    r.dxxx = L.dxxx*R.v + 3.0*L.dxx*R.dx + 3.0*L.dx*R.dxx + L.v*R.dxxx;
+    r.dyyy = L.dyyy*R.v + 3.0*L.dyy*R.dy + 3.0*L.dy*R.dyy + L.v*R.dyyy;
+    r.dxxy = L.dxxy*R.v + L.dxx*R.dy + 2.0*L.dx*R.dxy + 2.0*L.dxy*R.dx + L.dy*R.dxx + L.v*R.dxxy;
+    r.dxyy = L.dxyy*R.v + L.dyy*R.dx + 2.0*L.dy*R.dxy + 2.0*L.dxy*R.dy + L.dx*R.dyy + L.v*R.dxyy;
+    r.dxxt = L.dxxt*R.v + L.dxx*R.dt + 2.0*L.dx*R.dxt + 2.0*L.dxt*R.dx + L.dt*R.dxx + L.v*R.dxxt;
+    r.dyyt = L.dyyt*R.v + L.dyy*R.dt + 2.0*L.dy*R.dyt + 2.0*L.dyt*R.dy + L.dt*R.dyy + L.v*R.dyyt;
+    r.dxxxx = L.dxxxx*R.v + 4.0*L.dxxx*R.dx + 6.0*L.dxx*R.dxx + 4.0*L.dx*R.dxxx + L.v*R.dxxxx;
+    r.dyyyy = L.dyyyy*R.v + 4.0*L.dyyy*R.dy + 6.0*L.dyy*R.dyy + 4.0*L.dy*R.dyyy + L.v*R.dyyyy;
+    r.dxxyy = L.dxxyy*R.v + L.dxx*R.dyy + L.dyy*R.dxx
+            + 2.0*L.dxxy*R.dy + 2.0*L.dy*R.dxxy
+            + 2.0*L.dxyy*R.dx + 2.0*L.dx*R.dxyy
+            + 4.0*L.dxy*R.dxy
+            + L.v*R.dxxyy;
+    return r;
+}
+
+// ─── Version RAPIDA (solo v,dx,dy,dt,dxx,dyy,dtt) — la que usa TODA la suite
+// excepto Navier-Stokes/-Unsteady. Identica a la formula original de antes de
+// agregar el AD de 4to orden: no calcula dxy/dxt/dyt/3er/4to orden en
+// absoluto, para que ninguna otra EDP pague ese costo. Ver apply_unary_ad_ext
+// mas abajo para la version extendida (usada solo por Navier-Stokes).
 AD apply_unary_ad(NodeType type, const AD& C) {
     AD r;
     if (type == NodeType::SIN) {
@@ -93,6 +198,57 @@ AD apply_unary_ad(NodeType type, const AD& C) {
     return r;
 }
 
+// ─── Version EXTENDIDA (agrega dxy/dxt/dyt/3er/4to orden via
+// apply_composition) — usada UNICAMENTE por el camino ad_eval_ext_t de
+// Navier-Stokes/-Unsteady (ver Node::ad_eval_ext_t y compute_residual). No la
+// llama nadie mas, asi que el costo extra de calcular esos 12 campos queda
+// aislado a esas dos EDPs en vez de pagarlo toda la suite en cada evaluacion.
+AD apply_unary_ad_ext(NodeType type, const AD& C) {
+    if (type == NodeType::SIN) {
+        Complex s = std::sin(C.v), c = std::cos(C.v);
+        return apply_composition(s, c, -s, -c, s, C);
+    } else if (type == NodeType::COS) {
+        Complex s = std::sin(C.v), c = std::cos(C.v);
+        return apply_composition(c, -s, -c, s, c, C);
+    } else if (type == NodeType::EXP) {
+        if (C.v.real() > 100.0) { AD r; r.v = NAN; return r; }
+        Complex ev = std::exp(C.v);
+        return apply_composition(ev, ev, ev, ev, ev, C);
+    } else if (type == NodeType::SQR) {
+        // f(u)=u^2: f=u^2, f'=2u, f''=2, f'''=f''''=0
+        return apply_composition(C.v*C.v, 2.0*C.v, Complex(2.0,0.0), Complex(0.0,0.0), Complex(0.0,0.0), C);
+    } else if (type == NodeType::GAUSSIAN) {
+        // f(u)=exp(-0.5u^2)=G. f'=-u*G, f''=(u^2-1)*G, f'''=u*(3-u^2)*G, f''''=(u^4-6u^2+3)*G
+        // (derivadas a mano, diferenciando sucesivamente f'=-uG y verificando cada paso).
+        Complex u = C.v, u2 = u*u;
+        Complex G = std::exp(-0.5*u2);
+        Complex f1 = -u*G, f2 = (u2 - 1.0)*G, f3 = u*(3.0 - u2)*G, f4 = (u2*u2 - 6.0*u2 + 3.0)*G;
+        return apply_composition(G, f1, f2, f3, f4, C);
+    } else if (type == NodeType::TANH) {
+        // t=tanh(u). f'=1-t^2, f''=-2t(1-t^2), f'''=(6t^2-2)(1-t^2), f''''=(16t-24t^3)(1-t^2)
+        // (derivadas a mano, diferenciando sucesivamente t'=1-t^2).
+        Complex t = std::tanh(C.v);
+        Complex one_m_t2 = 1.0 - t*t;
+        Complex f1 = one_m_t2;
+        Complex f2 = -2.0*t*one_m_t2;
+        Complex f3 = (6.0*t*t - 2.0)*one_m_t2;
+        Complex f4 = (16.0*t - 24.0*t*t*t)*one_m_t2;
+        return apply_composition(t, f1, f2, f3, f4, C);
+    } else if (type == NodeType::LOG) {
+        if (C.v.real() <= 0.0) { AD r; r.v = NAN; return r; }
+        Complex u = C.v, inv = 1.0/u;
+        Complex f0 = std::log(u), f1 = inv, f2 = -inv*inv, f3 = 2.0*inv*inv*inv, f4 = -6.0*inv*inv*inv*inv;
+        return apply_composition(f0, f1, f2, f3, f4, C);
+    } else if (type == NodeType::SINH) {
+        Complex sh = std::sinh(C.v), ch = std::cosh(C.v);
+        return apply_composition(sh, ch, sh, ch, sh, C);
+    } else if (type == NodeType::COSH) {
+        Complex sh = std::sinh(C.v), ch = std::cosh(C.v);
+        return apply_composition(ch, sh, ch, sh, ch, C);
+    }
+    return AD();
+}
+
 Complex apply_binary(NodeType type, Complex lv, Complex rv) {
     if (type == NodeType::ADD) return lv+rv; if (type == NodeType::SUB) return lv-rv;
     if (type == NodeType::MUL) return lv*rv; 
@@ -105,6 +261,9 @@ Complex apply_binary(NodeType type, Complex lv, Complex rv) {
     return Complex(pv, 0.0);
 }
 
+// ─── Version RAPIDA (solo v,dx,dy,dt,dxx,dyy,dtt) — identica a la formula
+// original de antes de agregar el AD de 4to orden. La usa TODA la suite
+// excepto Navier-Stokes/-Unsteady (ver apply_binary_ad_ext mas abajo).
 AD apply_binary_ad(NodeType type, const AD& L, const AD& R) {
     AD r;
     if (type == NodeType::ADD) {
@@ -140,6 +299,61 @@ AD apply_binary_ad(NodeType type, const AD& L, const AD& R) {
     return r;
 }
 
+// ─── Version EXTENDIDA (agrega dxy/dxt/dyt/3er/4to orden) — usada UNICAMENTE
+// por el camino ad_eval_ext_t de Navier-Stokes/-Unsteady, ver comentario junto
+// a apply_unary_ad_ext.
+AD apply_binary_ad_ext(NodeType type, const AD& L, const AD& R) {
+    AD r;
+    if (type == NodeType::ADD) {
+        r.v = L.v+R.v; r.dx = L.dx+R.dx; r.dy = L.dy+R.dy; r.dt = L.dt+R.dt;
+        r.dxx = L.dxx+R.dxx; r.dyy = L.dyy+R.dyy; r.dtt = L.dtt+R.dtt;
+        r.dxy = L.dxy+R.dxy; r.dxt = L.dxt+R.dxt; r.dyt = L.dyt+R.dyt;
+        r.dxxx = L.dxxx+R.dxxx; r.dxxy = L.dxxy+R.dxxy; r.dxyy = L.dxyy+R.dxyy; r.dyyy = L.dyyy+R.dyyy;
+        r.dxxt = L.dxxt+R.dxxt; r.dyyt = L.dyyt+R.dyyt;
+        r.dxxxx = L.dxxxx+R.dxxxx; r.dxxyy = L.dxxyy+R.dxxyy; r.dyyyy = L.dyyyy+R.dyyyy;
+    } else if (type == NodeType::SUB) {
+        r.v = L.v-R.v; r.dx = L.dx-R.dx; r.dy = L.dy-R.dy; r.dt = L.dt-R.dt;
+        r.dxx = L.dxx-R.dxx; r.dyy = L.dyy-R.dyy; r.dtt = L.dtt-R.dtt;
+        r.dxy = L.dxy-R.dxy; r.dxt = L.dxt-R.dxt; r.dyt = L.dyt-R.dyt;
+        r.dxxx = L.dxxx-R.dxxx; r.dxxy = L.dxxy-R.dxxy; r.dxyy = L.dxyy-R.dxyy; r.dyyy = L.dyyy-R.dyyy;
+        r.dxxt = L.dxxt-R.dxxt; r.dyyt = L.dyyt-R.dyyt;
+        r.dxxxx = L.dxxxx-R.dxxxx; r.dxxyy = L.dxxyy-R.dxxyy; r.dyyyy = L.dyyyy-R.dyyyy;
+    } else if (type == NodeType::MUL) {
+        r = apply_mul_ad(L, R);
+    } else if (type == NodeType::DIV) {
+        // L/R = L * (1/R). 1/R via apply_composition con f(u)=1/u (f'=-1/u^2,
+        // f''=2/u^3, f'''=-6/u^4, f''''=24/u^5), luego producto via
+        // apply_mul_ad — reusa las dos reglas ya verificadas en vez de derivar
+        // el cociente por separado.
+        if (std::abs(R.v.real()) < 1e-12) { r.v = NAN; return r; }
+        Complex inv = 1.0/R.v, inv2 = inv*inv, inv3 = inv2*inv, inv4 = inv3*inv, inv5 = inv4*inv;
+        AD Rinv = apply_composition(inv, -inv2, 2.0*inv3, -6.0*inv4, 24.0*inv5, R);
+        r = apply_mul_ad(L, Rinv);
+    } else if (type == NodeType::POW) {
+        // pow(L,R) = exp(R*log(L)): compone log (via apply_composition),
+        // multiplica por R (via apply_mul_ad), y exponencia el resultado (via
+        // apply_composition) — evita derivar directamente la regla de la
+        // potencia de dos variables (base Y exponente diferenciables) a 4to
+        // orden, que es mucho mas propensa a error. Preserva generalidad
+        // completa (R puede depender de x/y/t, igual que el codigo de 2do
+        // orden anterior) al no asumir R constante en ningun paso.
+        if (L.v.real() < 0.0) { r.v = NAN; return r; }
+        Complex lv = L.v, linv = 1.0/lv, linv2 = linv*linv, linv3 = linv2*linv, linv4 = linv3*linv;
+        AD logL = apply_composition(std::log(lv), linv, -linv2, 2.0*linv3, -6.0*linv4, L);
+        AD M = apply_mul_ad(R, logL);
+        Complex ev = std::exp(M.v);
+        r = apply_composition(ev, ev, ev, ev, ev, M);
+    } else { // Polinomios Ortogonales: P_n(L(x,y,t)), composicion de una funcion
+             // de una variable (el polinomio) con L — misma maquinaria que
+             // SIN/EXP/etc, usando value+1ro..4to derivada de eval_poly_all.
+        if (!std::isfinite(R.v.real())) { r.v = NAN; return r; }
+        double pv, pdv, pdvv, pdvvv, pdvvvv; int n = std::clamp((int)std::round(R.v.real()), 0, 10);
+        eval_poly_all(type, n, L.v.real(), pv, pdv, pdvv, pdvvv, pdvvvv);
+        r = apply_composition(pv, pdv, pdvv, pdvvv, pdvvvv, L);
+    }
+    return r;
+}
+
 // ─── TerminalNode Implementation ─────────────────────────────────────────────
 thread_local int current_n = 1;
 AD TerminalNode::ad_eval(double x, double y, int dim) const { return ad_eval_t(x, y, 0.0, dim); }
@@ -150,6 +364,10 @@ AD TerminalNode::ad_eval_t(double x, double y, double t, int dim) const {
     else if (type == NodeType::VAR_T) r.dt = 1.0;
     return r;
 }
+// Todas las derivadas de orden >=2 de x, y, t o una constante son 0 — ad_eval_t
+// ya deja los 12 campos nuevos en su default (0), asi que delega directo.
+AD TerminalNode::ad_eval_ext(double x, double y, int dim) const { return ad_eval_t(x, y, 0.0, dim); }
+AD TerminalNode::ad_eval_ext_t(double x, double y, double t, int dim) const { return ad_eval_t(x, y, t, dim); }
 Complex TerminalNode::eval(double x, double y) const { return eval_t(x, y, 0.0); }
 Complex TerminalNode::eval_t(double x, double y, double t) const {
     if (type == NodeType::VAR_X) return x; if (type == NodeType::VAR_Y) return y;
@@ -219,6 +437,12 @@ AD UnaryNode::ad_eval_t(double x, double y, double t, int dim) const {
     if (!child) return AD(0.0);
     AD C = child->ad_eval_t(x, y, t, dim);
     return apply_unary_ad(type, C);
+}
+AD UnaryNode::ad_eval_ext(double x, double y, int dim) const { return ad_eval_ext_t(x, y, 0.0, dim); }
+AD UnaryNode::ad_eval_ext_t(double x, double y, double t, int dim) const {
+    if (!child) return AD(0.0);
+    AD C = child->ad_eval_ext_t(x, y, t, dim);
+    return apply_unary_ad_ext(type, C);
 }
 Complex UnaryNode::eval(double x, double y) const { return eval_t(x, y, 0.0); }
 Complex UnaryNode::eval_t(double x, double y, double t) const {
@@ -312,6 +536,12 @@ AD BinaryNode::ad_eval_t(double x, double y, double t, int dim) const {
     if (!left || !right) return AD(0.0);
     AD L = left->ad_eval_t(x, y, t, dim); AD R = right->ad_eval_t(x, y, t, dim);
     return apply_binary_ad(type, L, R);
+}
+AD BinaryNode::ad_eval_ext(double x, double y, int dim) const { return ad_eval_ext_t(x, y, 0.0, dim); }
+AD BinaryNode::ad_eval_ext_t(double x, double y, double t, int dim) const {
+    if (!left || !right) return AD(0.0);
+    AD L = left->ad_eval_ext_t(x, y, t, dim); AD R = right->ad_eval_ext_t(x, y, t, dim);
+    return apply_binary_ad_ext(type, L, R);
 }
 Complex BinaryNode::eval(double x, double y) const { return eval_t(x, y, 0.0); }
 Complex BinaryNode::eval_t(double x, double y, double t) const {
@@ -474,92 +704,6 @@ int BinaryNode::get_depth() const { return 1 + std::max(left ? left->get_depth()
 NodePtr BinaryNode::clone() const { return std::make_unique<BinaryNode>(type, left ? left->clone() : nullptr, right ? right->clone() : nullptr); }
 int BinaryNode::count_nodes() const { return 1 + (left ? left->count_nodes() : 0) + (right ? right->count_nodes() : 0); }
 
-// ─── RotateNode Implementation ("operador de revolucion") ────────────────────
-AD RotateNode::ad_eval(double x, double y, int dim) const { return ad_eval_t(x, y, 0.0, dim); }
-AD RotateNode::ad_eval_t(double x, double y, double t, int dim) const {
-    if (!child) return AD();
-    Complex c = std::cos(theta), s = std::sin(theta);
-    double xr = x * c.real() - y * s.real();
-    double yr = x * s.real() + y * c.real();
-    AD in = child->ad_eval_t(xr, yr, t, dim);
-    AD out;
-    out.v = in.v;
-    // Regla de la cadena exacta para 1er orden (ver comentario en el header).
-    out.dx = in.dx * c + in.dy * s;
-    out.dy = in.dx * (-s) + in.dy * c;
-    out.dt = in.dt;
-    // Laplaciano invariante rotacional: alcanza con copiar tal cual, ver header.
-    out.dxx = in.dxx;
-    out.dyy = in.dyy;
-    out.dtt = in.dtt;
-    return out;
-}
-Complex RotateNode::eval(double x, double y) const { return eval_t(x, y, 0.0); }
-Complex RotateNode::eval_t(double x, double y, double t) const {
-    if (!child) return 0.0;
-    Complex c = std::cos(theta), s = std::sin(theta);
-    double xr = x * c.real() - y * s.real();
-    double yr = x * s.real() + y * c.real();
-    return child->eval_t(xr, yr, t);
-}
-void RotateNode::mutate_erc(std::mt19937& gen, double sigma) {
-    std::normal_distribution<double> dist(0, sigma);
-    theta += Complex(dist(gen), 0);
-    // Normaliza a una vuelta completa [0, 2*PI) — sin esto, mutaciones
-    // sucesivas suman ruido sin limite y theta puede crecer indefinidamente
-    // (ej. 15.7 en vez de su equivalente 15.7 mod 2*PI = 3.13). Matematicamente
-    // cos/sin son periodicos asi que el resultado NUMERICO de la rotacion no
-    // cambia, pero el angulo mostrado y el espacio de busqueda quedan
-    // acotados a una vuelta real en vez de "enroscarse" sin limite.
-    const double TWO_PI = 2.0 * 3.14159265358979323846;
-    double t = std::fmod(theta.real(), TWO_PI);
-    if (t < 0.0) t += TWO_PI;
-    theta = Complex(t, theta.imag());
-    if (child) child->mutate_erc(gen, sigma);
-}
-void RotateNode::print_formal(std::ostream& os, int parent_prec) const {
-    // El subindice es el angulo de rotacion theta (en radianes) del dominio
-    // (x,y) -> (x cos(theta) - y sin(theta), x sin(theta) + y cos(theta)) —
-    // ver comentario en la declaracion de RotateNode. Antes se imprimia el
-    // double crudo sin etiqueta ("Rot_{2.35619}"), ambiguo. Ahora se rotula
-    // explicitamente "theta=" y, si el angulo es una fraccion simple de pi
-    // (comun tras redondeo/mutacion, ej. 3pi/4), se muestra como fraccion en
-    // vez de un decimal largo — mas legible para un angulo de rotacion.
-    double t = theta.real();
-    const double PI_L = 3.14159265358979323846;
-    os << "\\text{Rot}_{\\theta=";
-    bool printed_fraction = false;
-    for (int den = 1; den <= 12 && !printed_fraction; ++den) {
-        double num = t * den / PI_L;
-        double nearest = std::round(num);
-        if (std::abs(num - nearest) < 1e-3 && std::abs(nearest) > 0.5) {
-            int n = (int)nearest, d = den;
-            int g = std::gcd(std::abs(n), d);
-            if (g > 1) { n /= g; d /= g; }
-            if (d == 1) os << n << "\\pi";
-            else os << "\\frac{" << n << "\\pi}{" << d << "}";
-            printed_fraction = true;
-        }
-    }
-    if (!printed_fraction) os << std::round(t * 1000.0) / 1000.0;
-    os << "}\\left(";
-    if (child) child->print_formal(os, 0);
-    os << "\\right)";
-}
-void RotateNode::round_constants(double epsilon) {
-    // Normaliza a [0, 2*PI) primero — gradient_descent_constants (complex-step)
-    // actualiza theta directamente sin pasar por mutate_erc, asi que tambien
-    // puede desviarse fuera de una vuelta; esto se llama antes de imprimir asi
-    // que garantiza que lo mostrado siempre sea el angulo canonico.
-    const double TWO_PI = 2.0 * 3.14159265358979323846;
-    double r = std::fmod(theta.real(), TWO_PI);
-    if (r < 0.0) r += TWO_PI;
-    double nearest = std::round(r);
-    if (std::abs(r - nearest) < epsilon) r = nearest;
-    theta = Complex(r, theta.imag());
-    if (child) child->round_constants(epsilon);
-}
-
 // ─── SeriesNode Implementation ───────────────────────────────────────────────
 AD SeriesNode::ad_eval(double x, double y, int dim) const { return ad_eval_t(x, y, 0.0, dim); }
 AD SeriesNode::ad_eval_t(double x, double y, double t, int dim) const {
@@ -567,6 +711,19 @@ AD SeriesNode::ad_eval_t(double x, double y, double t, int dim) const {
     for (int n = 1; n <= n_terms; ++n) { current_n = n; AD C = child->ad_eval_t(x, y, t, dim);
         Complex coef = coeffs[n - 1]; r.v += coef * C.v; r.dx += coef * C.dx; r.dy += coef * C.dy; r.dt += coef * C.dt;
         r.dxx += coef * C.dxx; r.dyy += coef * C.dyy; r.dtt += coef * C.dtt;
+    }
+    current_n = save_n; return r;
+}
+AD SeriesNode::ad_eval_ext(double x, double y, int dim) const { return ad_eval_ext_t(x, y, 0.0, dim); }
+AD SeriesNode::ad_eval_ext_t(double x, double y, double t, int dim) const {
+    AD r; r.v = 0.0; int save_n = current_n;
+    for (int n = 1; n <= n_terms; ++n) { current_n = n; AD C = child->ad_eval_ext_t(x, y, t, dim);
+        Complex coef = coeffs[n - 1]; r.v += coef * C.v; r.dx += coef * C.dx; r.dy += coef * C.dy; r.dt += coef * C.dt;
+        r.dxx += coef * C.dxx; r.dyy += coef * C.dyy; r.dtt += coef * C.dtt;
+        r.dxy += coef * C.dxy; r.dxt += coef * C.dxt; r.dyt += coef * C.dyt;
+        r.dxxx += coef * C.dxxx; r.dxxy += coef * C.dxxy; r.dxyy += coef * C.dxyy; r.dyyy += coef * C.dyyy;
+        r.dxxt += coef * C.dxxt; r.dyyt += coef * C.dyyt;
+        r.dxxxx += coef * C.dxxxx; r.dxxyy += coef * C.dxxyy; r.dyyyy += coef * C.dyyyy;
     }
     current_n = save_n; return r;
 }
@@ -629,6 +786,24 @@ static NodePtr skeleton_frobenius(int depth, std::mt19937& gen, const PDEProblem
     auto series = std::make_unique<SeriesNode>(5, make_binary(NodeType::POW, std::move(var), make_var_n()));
     return make_binary(NodeType::MUL, std::move(pwr), std::move(series));
 }
+// Estiramiento de coordenadas (log-transform) cerca de una singularidad tipo
+// polo: la tecnica clasica de perturbaciones singulares sustituye s=log(r)
+// para volver regular una EDO que es singular en r=0 (ej. el termino 1/sqrt(r)
+// de Thomas-Fermi, o el 2/x de Lane-Emden). En vez de armar la transformacion
+// completa (requeriria un nodo de cambio de variable dedicado), se le da a la
+// busqueda log(x+eps) como bloque de construccion DIRECTO — mucho mas
+// probable que descubra la forma correcta de un termino singular via
+// mutacion/cruzamiento a partir de ahi que esperando que log() y division se
+// combinen por casualidad desde un arbol generico.
+static NodePtr skeleton_log_stretch(int depth, std::mt19937& gen, const PDEProblem& prob) {
+    auto var = (prob.dim == 1 || std::uniform_real_distribution<double>(0,1)(gen) < 0.5) ? make_var('x') : make_var('y');
+    double eps = 0.05 + std::uniform_real_distribution<double>(0.0, 0.1)(gen);
+    NodePtr log_var = make_unary(NodeType::LOG, make_binary(NodeType::ADD, std::move(var), make_erc(eps)));
+    int mode = std::uniform_int_distribution<int>(0, 2)(gen);
+    if (mode == 2 || depth <= 1) return log_var;
+    NodePtr rest = random_tree(std::max(depth - 2, 1), gen, prob);
+    return make_binary(mode == 0 ? NodeType::MUL : NodeType::ADD, std::move(log_var), std::move(rest));
+}
 
 NodePtr random_tree(int depth, std::mt19937& gen, const PDEProblem& prob, bool force_t) {
     std::uniform_real_distribution<double> ud(0, 1);
@@ -678,12 +853,76 @@ static NodePtr special_var_t(const PDEProblem& prob) {
     return prob.is_unsteady ? make_var('t') : make_var('x');
 }
 
+// Combinacion lineal rotada a*x+b*y (a=cos(theta), b=sin(theta), angulo
+// aleatorio) envuelta en una funcion unaria: building block DIRECTO para
+// soluciones tipo "cresta"/onda plana f(ax+by), en vez de esperar que
+// ERC*x+ERC*y emerja por mutacion al azar desde un arbol generico — mismo
+// espiritu que skeleton_log_stretch para el termino singular. Ver
+// PDEPriors::rotation_invariant.
+static NodePtr skeleton_rotated(int depth, std::mt19937& gen, const PDEProblem& prob) {
+    constexpr double PI_LOCAL = 3.14159265358979323846;
+    double theta = std::uniform_real_distribution<double>(0.0, 2.0 * PI_LOCAL)(gen);
+    NodePtr lin = make_binary(NodeType::ADD,
+        make_binary(NodeType::MUL, make_erc(std::cos(theta)), make_var('x')),
+        make_binary(NodeType::MUL, make_erc(std::sin(theta)), special_var2(prob)));
+
+    static const NodeType unary_opts[] = {NodeType::SIN, NodeType::COS, NodeType::EXP,
+                                           NodeType::TANH, NodeType::SINH, NodeType::COSH};
+    NodeType op = unary_opts[std::uniform_int_distribution<int>(0, 5)(gen)];
+    NodePtr wrapped = make_unary(op, std::move(lin));
+
+    int mode = std::uniform_int_distribution<int>(0, 2)(gen);
+    if (mode == 2 || depth <= 1) return wrapped;
+    NodePtr rest = random_tree(std::max(depth - 2, 1), gen, prob);
+    return make_binary(mode == 0 ? NodeType::MUL : NodeType::ADD, std::move(wrapped), std::move(rest));
+}
+
+// Oscilador amortiguado exp(-a*v)*sin(b*v) con v en {x,y}: building block
+// DIRECTO para la firma u''+2*zeta*omega*u'+omega^2*u=0 (ver
+// PDEPriors::damped_oscillator) — en vez de esperar que EXP y SIN se
+// combinen por casualidad via mutacion/cruzamiento, mismo espiritu que
+// skeleton_log_stretch/skeleton_rotated.
+static NodePtr skeleton_damped_oscillator(int depth, std::mt19937& gen, const PDEProblem& prob) {
+    // En 2D, el sobre (envolvente) y la oscilacion pueden ir en variables
+    // DISTINTAS (ej. exp(-a*x)*sin(b*y)) o la misma (ej. exp(-a*x)*sin(b*x),
+    // el oscilador amortiguado clasico 1D) — 50/50 al azar. La forma cruzada
+    // es la que realmente necesita Navier-Stokes: su solucion real es
+    // exp(lambda*x)*sin(2*pi*y)/(2*pi*Re), sobre en x pero oscilacion en y —
+    // antes esta funcion solo generaba la forma de una sola variable, que
+    // nunca calza con esa estructura por mas mutacion/cruzamiento que se le
+    // aplique. En 1D solo existe x, asi que ambas coinciden por construccion.
+    char env_c = 'x', osc_c = 'x';
+    if (prob.dim >= 2) {
+        env_c = (std::uniform_real_distribution<double>(0.0, 1.0)(gen) < 0.5) ? 'x' : 'y';
+        bool cross = std::uniform_real_distribution<double>(0.0, 1.0)(gen) < 0.5;
+        osc_c = cross ? (env_c == 'x' ? 'y' : 'x') : env_c;
+    }
+    NodePtr var_env = make_var(env_c);
+    NodePtr var_osc = make_var(osc_c);
+    double a = std::uniform_real_distribution<double>(0.1, 3.0)(gen);
+    double b = std::uniform_real_distribution<double>(0.5, 10.0)(gen);
+
+    NodePtr envelope = make_unary(NodeType::EXP, make_binary(NodeType::MUL, make_erc(-a), std::move(var_env)));
+    NodePtr osc = make_unary(NodeType::SIN, make_binary(NodeType::MUL, make_erc(b), std::move(var_osc)));
+    NodePtr damped = make_binary(NodeType::MUL, std::move(envelope), std::move(osc));
+
+    int mode = std::uniform_int_distribution<int>(0, 2)(gen);
+    if (mode == 2 || depth <= 1) return damped;
+    NodePtr rest = random_tree(std::max(depth - 2, 1), gen, prob);
+    return make_binary(mode == 0 ? NodeType::MUL : NodeType::ADD, std::move(damped), std::move(rest));
+}
+
 NodePtr random_tree_special(int depth, std::mt19937& gen, const PDEProblem& prob, const PDEPriors& priors) {
     std::vector<int> valid_choices;
     for (int i = 0; i <= 9; ++i) valid_choices.push_back(i);
-    if (priors.pole_at_origin) { for (int i = 0; i < 5; ++i) valid_choices.push_back(10); }
+    if (priors.pole_at_origin) {
+        for (int i = 0; i < 5; ++i) valid_choices.push_back(10);
+        for (int i = 0; i < 5; ++i) valid_choices.push_back(13); // skeleton_log_stretch
+    }
     if (priors.autonomous_x || priors.autonomous_y) { for (int i = 0; i < 5; ++i) valid_choices.push_back(11); }
     if (priors.scale_invariant) { for (int i = 0; i < 5; ++i) valid_choices.push_back(12); }
+    if (priors.rotation_invariant && prob.dim >= 2) { for (int i = 0; i < 5; ++i) valid_choices.push_back(14); }
+    if (priors.damped_oscillator) { for (int i = 0; i < 5; ++i) valid_choices.push_back(15); }
     int choice = valid_choices[std::uniform_int_distribution<int>(0, valid_choices.size() - 1)(gen)];
     last_special_choice = choice;
     switch (choice) {
@@ -700,7 +939,10 @@ NodePtr random_tree_special(int depth, std::mt19937& gen, const PDEProblem& prob
         case 10: return skeleton_rational(depth, gen, prob);
         case 11: return skeleton_spectral(depth, gen, prob);
         case 12: return skeleton_frobenius(depth, gen, prob);
-        // Inalcanzable en la práctica (valid_choices sólo puebla 0-12), pero si algún
+        case 13: return skeleton_log_stretch(depth, gen, prob);
+        case 14: return skeleton_rotated(depth, gen, prob);
+        case 15: return skeleton_damped_oscillator(depth, gen, prob);
+        // Inalcanzable en la práctica (valid_choices sólo puebla 0-15), pero si algún
         // día deja de serlo, degradamos a un árbol genérico en vez de filtrar la
         // solución exacta del PDE (ver auditoría: get_exact_solution_tree eliminada).
         default: return random_tree(depth, gen, prob);
@@ -716,7 +958,6 @@ static void relabel_var_x(Node* n, NodeType target) {
     if (auto* un = dynamic_cast<UnaryNode*>(n)) { relabel_var_x(un->child.get(), target); return; }
     if (auto* bn = dynamic_cast<BinaryNode*>(n)) { relabel_var_x(bn->left.get(), target); relabel_var_x(bn->right.get(), target); return; }
     if (auto* sn = dynamic_cast<SeriesNode*>(n)) { relabel_var_x(sn->child.get(), target); return; }
-    if (auto* rn = dynamic_cast<RotateNode*>(n)) { relabel_var_x(rn->child.get(), target); return; }
 }
 
 NodePtr random_separable_tree(int depth, std::mt19937& gen, const PDEProblem& prob, bool multiplicative) {
@@ -742,6 +983,23 @@ NodePtr random_triple_separable_tree(int depth, std::mt19937& gen, const PDEProb
     relabel_var_x(fy.get(), NodeType::VAR_Y);
     relabel_var_x(ft.get(), NodeType::VAR_T);
     return make_binary(NodeType::MUL, make_binary(NodeType::MUL, std::move(fx), std::move(fy)), std::move(ft));
+}
+
+NodePtr random_modal_sum_tree(int depth, std::mt19937& gen, const PDEProblem& prob) {
+    PDEProblem prob1d = prob;
+    prob1d.dim = 1;
+    prob1d.is_unsteady = false;
+    bool pure_is_y = std::uniform_real_distribution<double>(0.0, 1.0)(gen) < 0.5;
+    NodePtr pure = random_tree(depth, gen, prob1d);
+    relabel_var_x(pure.get(), pure_is_y ? NodeType::VAR_Y : NodeType::VAR_X);
+
+    int sub_depth = std::max(depth - 1, 1);
+    NodePtr px = random_tree(sub_depth, gen, prob1d);
+    NodePtr py = random_tree(sub_depth, gen, prob1d);
+    relabel_var_x(py.get(), NodeType::VAR_Y);
+    NodePtr prod = make_binary(NodeType::MUL, std::move(px), std::move(py));
+
+    return make_binary(NodeType::ADD, std::move(pure), std::move(prod));
 }
 
 static bool is_v(const Node* n, double target) {
@@ -1143,23 +1401,6 @@ NodePtr tree_mutate_factor(const NodePtr& term, std::mt19937& gen, const PDEProb
 NodePtr tree_mutate(const NodePtr& t, std::mt19937& gen, const PDEProblem& p, double aggressiveness) {
     if (!t) return make_binary(NodeType::MUL, make_erc(1.0), random_tree(2, gen, p));
     std::uniform_real_distribution<double> ud(0.0, 1.0);
-
-    // Operador de "revolucion": envuelve el arbol entero para que se evalue en
-    // el dominio (x,y) rotado un angulo aleatorio, en vez de tocar su
-    // estructura — util para PDEs con simetria rotacional latente (vortices)
-    // que no es evidente en los ejes originales (motivado por Navier-Stokes-
-    // Unsteady). Solo tiene sentido en 2D (rota x,y); si ya esta envuelto en
-    // un RotateNode, con la misma probabilidad se lo quita en vez de anidar
-    // otro, para no acumular rotaciones sin limite.
-    if (p.dim == 2 && ud(gen) < 0.05) {
-        if (t->get_type() == NodeType::ROTATE) {
-            auto* rn = dynamic_cast<RotateNode*>(t.get());
-            if (rn && rn->child) return rn->child->clone();
-        } else {
-            double theta = std::uniform_real_distribution<double>(-PI_VAL, PI_VAL)(gen);
-            return std::make_unique<RotateNode>(Complex(theta, 0.0), t->clone());
-        }
-    }
 
     // La mayoría de las mutaciones son un swap de NodeType dentro de la misma
     // familia funcional (adaptación suave), no una regeneración total del árbol.

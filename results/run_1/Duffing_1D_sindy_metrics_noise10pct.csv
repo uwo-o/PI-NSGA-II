@@ -1,0 +1,2 @@
+method,pde,noise_pct,best_mse_domain,best_mse_boundary,mse_total,runtime_s
+PySINDy,Duffing_1D,0.1,0.020182749916082904,0.0,0.020182749916082904,0.0057179927825927734

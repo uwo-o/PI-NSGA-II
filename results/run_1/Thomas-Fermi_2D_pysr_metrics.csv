@@ -1,2 +1,2 @@
-method,pde,best_mse_domain,best_mse_boundary,mse_total,runtime_s
-PySR,Thomas-Fermi_2D,6.762945670802177e-13,0.0,6.762945670802177e-13,37.81570053100586
+method,pde,noise_pct,best_mse_domain,best_mse_boundary,mse_total,runtime_s
+PySR,Thomas-Fermi_2D,0.0,6.756346170053347e-05,0.0,6.756346170053347e-05,108.63115739822388

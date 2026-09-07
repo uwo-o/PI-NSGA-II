@@ -1,0 +1,2 @@
+method,pde,dim,mse_domain,mse_boundary,runtime_s,rank
+DeepXDE,Thomas-Fermi,1,0.0000031365,0.0000045941,380.8996,1

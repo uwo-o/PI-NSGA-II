@@ -65,6 +65,18 @@ std::vector<Complex> solve_rk4_1d(const PDEProblem& prob, int resolution) {
         // Ai'(0) ≈ -0.2588
         v_a = Complex(-0.2588, 0.0);
         v_b = Complex(-0.3, 0.0);
+    } else if (prob.type == PDE::THOMAS_FERMI) {
+        // y'(0) para la ecuacion de Thomas-Fermi real (y(0)=1, y'(0)<0,
+        // decaimiento singular en el termino y^1.5/sqrt(x)) es
+        // historicamente conocido: y'(0) ~= -1.588071 (constante de
+        // Thomas-Fermi, tablas de Bush & Caldwell / Kobayashi et al.). Con
+        // las semillas genericas (0, -0.5) el metodo de disparo secante
+        // diverge para este BVP — es notoriamente sensible — y el resultado
+        // era una curva "numerical_truth" basura (valores explotando en vez
+        // de decaer). Arrancar cerca del valor real deja al secante corregir
+        // solo el ultimo tramo.
+        v_a = Complex(-1.5, 0.0);
+        v_b = Complex(-1.6, 0.0);
     } else {
         v_a = Complex(0.0, 0.0);
         v_b = Complex(-0.5, 0.0);

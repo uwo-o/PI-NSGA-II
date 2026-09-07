@@ -1,2 +1,2 @@
-method,pde,best_mse_domain,best_mse_boundary,mse_total,runtime_s
-PySR,Troesch_1D,4.480795667327395e-08,0.0,4.480795667327395e-08,27.72407579421997
+method,pde,noise_pct,best_mse_domain,best_mse_boundary,mse_total,runtime_s
+PySR,Troesch_1D,0.0,8.94727700563235e-07,0.0,8.94727700563235e-07,139.13979077339172

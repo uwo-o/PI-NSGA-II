@@ -47,6 +47,29 @@ void save_pareto_csv(const std::vector<Ind>& pop,
     }
 }
 
+// ─── Guardar el archivo historico de poblacion (todas las generaciones) ──────
+// A diferencia de save_pareto_csv (una sola generacion, la final), esto trae
+// una fila por individuo por CADA generacion — ver PISolver::population_archive()
+// y su comentario en pi_solver.hpp para la motivacion (el pulido de constantes
+// colapsa la diversidad visual incluso en la poblacion final; generaciones
+// anteriores, antes de converger del todo, tienen combinaciones (tree_size,
+// mse_domain) que ya no sobreviven al final).
+void save_population_archive_csv(const std::vector<PISolver::ArchiveEntry>& archive,
+                                  const std::string& path,
+                                  const std::string& method,
+                                  const std::string& pde_label,
+                                  int dim)
+{
+    std::ofstream f(path);
+    f << std::fixed << std::setprecision(10);
+    f << "method,pde,dim,gen,mse_domain,mse_boundary,tree_size,rank\n";
+    for (auto& e : archive) {
+        f << method << "," << pde_label << "," << dim << "," << e.gen << ","
+          << e.mse_domain << "," << e.mse_boundary << ","
+          << e.tree_size << "," << e.rank << "\n";
+    }
+}
+
 // ─── Guardar Historial de Convergencia ────────────────────────────────────────
 void save_convergence_csv(const std::vector<ConvergenceStats>& history,
                            const std::string& path)
@@ -114,13 +137,21 @@ void save_best_expression(const Ind& champion, const PDEProblem& prob, const std
     }
     if (n_negligible && dim == 1) {
         double u0 = prob.bc(0.0, 0.0, 0.0).real();
-        double u1 = prob.bc(1.0, 0.0, 0.0).real();
-        NodePtr L = make_binary(NodeType::ADD, make_erc(u0),
-                                 make_binary(NodeType::MUL, make_var('x'), make_erc(u1 - u0)));
-        NodePtr B = make_binary(NodeType::MUL, make_var('x'),
-                                 make_binary(NodeType::SUB, make_var('x'), make_erc(1.0)));
-        NodePtr U = make_binary(NodeType::ADD, std::move(L),
-                                 make_binary(NodeType::MUL, std::move(B), std::move(final_tree)));
+        NodePtr U;
+        if (prob.priors.one_sided_boundary) {
+            // Ansatz de un solo lado (ver apply_boundary_ansatz en
+            // pi_solver.cpp): U = u0 + x*N, sin termino L(x1) inventado.
+            U = make_binary(NodeType::ADD, make_erc(u0),
+                             make_binary(NodeType::MUL, make_var('x'), std::move(final_tree)));
+        } else {
+            double u1 = prob.bc(1.0, 0.0, 0.0).real();
+            NodePtr L = make_binary(NodeType::ADD, make_erc(u0),
+                                     make_binary(NodeType::MUL, make_var('x'), make_erc(u1 - u0)));
+            NodePtr B = make_binary(NodeType::MUL, make_var('x'),
+                                     make_binary(NodeType::SUB, make_var('x'), make_erc(1.0)));
+            U = make_binary(NodeType::ADD, std::move(L),
+                             make_binary(NodeType::MUL, std::move(B), std::move(final_tree)));
+        }
         U = U->simplify();
         U->round_constants(1e-3);
         U = U->simplify();
@@ -145,6 +176,11 @@ void save_best_grid(const Ind& champion, const PDEProblem& prob, const std::stri
         // que deshacerlo acá también, si no el grid grafica la corrección cruda
         // en vez de la solución real.
         bool use_ansatz_1d = !Config::GENERAL_MODE && Config::USE_ANSATZ;
+        // priors.one_sided_boundary (ver pde_problems.hpp): ansatz de UN SOLO
+        // LADO, U=u0+x*N, sin anclar x=1 a un valor que requiere haber
+        // resuelto la EDO real (fuga de informacion) — ver apply_boundary_ansatz
+        // en pi_solver.cpp para el detalle y el criterio generico de deteccion.
+        bool one_sided = prob.priors.one_sided_boundary;
         double u0 = prob.bc(0.0, 0.0, 0.0).real();
         double u1 = prob.bc(1.0, 0.0, 0.0).real();
         f << "x,u_exact,u_approx\n";
@@ -152,7 +188,9 @@ void save_best_grid(const Ind& champion, const PDEProblem& prob, const std::stri
             double x = (double)i / 100.0;
             double N = std::real(champion.tree->eval(x, 0));
             double u_approx = N;
-            if (use_ansatz_1d) {
+            if (use_ansatz_1d && one_sided) {
+                u_approx = u0 + x * N;
+            } else if (use_ansatz_1d) {
                 double L = u0 + x * (u1 - u0);
                 double B = x * (x - 1.0);
                 u_approx = L + B * N;
@@ -160,13 +198,18 @@ void save_best_grid(const Ind& champion, const PDEProblem& prob, const std::stri
             f << x << "," << std::real(prob.numerical_exact(x, 0, 0)) << "," << u_approx << "\n";
         }
     } else {
-        // Igual que en 1D: si el ansatz de frontera exacta aplica en 2D (Dirichlet
-        // simple en las 4 aristas — no Navier-Stokes, que usa condiciones sobre
-        // función de corriente/velocidad), el árbol representa N(x,y) dentro de
-        // U(x,y) = L(x,y) + B(x,y)*N(x,y) (interpolación transfinita — mismas
-        // fórmulas que PIIndividual::evaluate/apply_boundary_ansatz en pi_solver.cpp).
+        // Igual que en 1D: si el ansatz de frontera exacta aplica en 2D
+        // (Dirichlet simple en las 4 aristas — no Navier-Stokes, que usa
+        // condiciones sobre función de corriente/velocidad), el árbol
+        // representa N(x,y) dentro de U(x,y) = L(x,y) + B(x,y)*N(x,y)
+        // (interpolación transfinita) — o, si priors.one_sided_boundary
+        // (dominio semi-infinito truncado, ver pde_problems.hpp), dentro de
+        // la version radial de un solo lado U = u0 + r*N(x,y) — mismas
+        // fórmulas que apply_boundary_ansatz en pi_solver.cpp.
         bool use_ansatz_2d = !Config::GENERAL_MODE && Config::USE_ANSATZ &&
             (prob.type != PDE::NAVIER_STOKES && prob.type != PDE::NAVIER_STOKES_UNSTEADY);
+        bool one_sided = prob.priors.one_sided_boundary;
+        double u0 = prob.bc(0.0, 0.0, 0.0).real();
         f << "x,y,u_exact,u_approx\n";
         for (int i = 0; i <= 30; ++i) {
             for (int j = 0; j <= 30; ++j) {
@@ -174,7 +217,10 @@ void save_best_grid(const Ind& champion, const PDEProblem& prob, const std::stri
                 double y = (double)j / 30.0;
                 double N = std::real(champion.tree->eval(x, y));
                 double u_approx = N;
-                if (use_ansatz_2d) {
+                if (use_ansatz_2d && one_sided) {
+                    double r = std::sqrt(x*x + y*y);
+                    u_approx = u0 + r * N;
+                } else if (use_ansatz_2d) {
                     double g0 = prob.bc(0.0, y, 0.0).real(), g1 = prob.bc(1.0, y, 0.0).real();
                     double h0 = prob.bc(x, 0.0, 0.0).real(), h1 = prob.bc(x, 1.0, 0.0).real();
                     double c00 = prob.bc(0.0, 0.0, 0.0).real(), c10 = prob.bc(1.0, 0.0, 0.0).real();
@@ -467,6 +513,13 @@ std::vector<Stats> run_once(int run_id, const std::string& out_dir, bool verbose
         if (prob.is_numerical) {
             prob.numerical_truth = NumericalSolver::solve(prob, 50);
         }
+        // PISolver hace lo mismo internamente sobre su propia copia de prob,
+        // pero las funciones de exportacion de este archivo (save_best_grid,
+        // save_best_expression) reciben este `prob` de mas arriba, no la copia
+        // interna del solver — sin esto, prob.priors quedaba en su default
+        // (todo false) aca, rompiendo cualquier chequeo generico basado en
+        // priors (ver PDEPriors::one_sided_boundary) del lado de main.cpp.
+        prob.priors = probe_priors(prob);
 
         // Run Numerical Solver (RK4/FDM) baseline for comparison
         bool has_numerical = false;
@@ -547,6 +600,8 @@ std::vector<Stats> run_once(int run_id, const std::string& out_dir, bool verbose
             double pi_rt = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
 
             save_pareto_csv(pi_pop, out_dir + "/" + lbl + "_pi_gn_pareto.csv", "PISR-NSGA-II", prob.name(), prob.dim);
+            save_pareto_csv(pi.unpolished_final_population(), out_dir + "/" + lbl + "_pi_gn_pareto_unpolished.csv", "PISR-NSGA-II", prob.name(), prob.dim);
+            save_population_archive_csv(pi.population_archive(), out_dir + "/" + lbl + "_pi_gn_population_archive.csv", "PISR-NSGA-II", prob.name(), prob.dim);
             save_convergence_csv(pi.history(), out_dir + "/" + lbl + "_pi_gn_convergence.csv");
             if (has_champion) {
                 save_best_expression(champion, prob, out_dir + "/expr_" + lbl + "_PISR-EMOAD.tex", prob.dim);

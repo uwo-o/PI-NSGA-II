@@ -1,2 +1,2 @@
-method,pde,best_mse_domain,best_mse_boundary,mse_total,runtime_s
-PySINDy,Laplace_1D,2.4520580131862046e-31,0.0,2.4520580131862046e-31,0.01746344566345215
+method,pde,noise_pct,best_mse_domain,best_mse_boundary,mse_total,runtime_s
+PySINDy,Laplace_1D,0.0,2.4520580131862046e-31,0.0,2.4520580131862046e-31,0.015883445739746094

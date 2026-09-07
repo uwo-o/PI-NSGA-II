@@ -1,2 +1,2 @@
-method,pde,best_mse_domain,best_mse_boundary,mse_total,runtime_s
-PySINDy,Poisson_1D,7.967149057241739e-08,0.0,7.967149057241739e-08,0.008115530014038086
+method,pde,noise_pct,best_mse_domain,best_mse_boundary,mse_total,runtime_s
+PySINDy,Poisson_1D,0.0,7.967149057241739e-08,0.0,7.967149057241739e-08,0.005138397216796875

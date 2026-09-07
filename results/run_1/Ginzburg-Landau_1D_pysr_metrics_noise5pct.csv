@@ -1,0 +1,2 @@
+method,pde,noise_pct,best_mse_domain,best_mse_boundary,mse_total,runtime_s
+PySR,Ginzburg-Landau_1D,0.05,1.7329895640739174e-06,0.0,1.7329895640739174e-06,33.107264280319214

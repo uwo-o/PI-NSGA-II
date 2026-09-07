@@ -1,0 +1,2 @@
+method,pde,noise_pct,best_mse_domain,best_mse_boundary,mse_total,runtime_s
+PySINDy,Lane-Emden_1D,0.1,0.005808038166380223,0.0,0.005808038166380223,0.005411386489868164

@@ -22,6 +22,27 @@ struct PDEPriors {
     bool pole_at_origin = false;
     bool even_parity_x = false;
 
+    // Ansatz de frontera de UN SOLO LADO: U = u0 + x*N(x) (1D) o
+    // U = u0 + r*N(x,y) (2D, r=sqrt(x^2+y^2)), anclando SOLO el origen (u0,
+    // el valor real de la condicion de frontera ahi) en vez de un segundo
+    // punto/arista inventado. Derivado de pole_at_origin (no un sondeo
+    // aparte): un operador con un termino que diverge en el origen (ej.
+    // 2/x en Lane-Emden, 1/sqrt(r) en Thomas-Fermi) tipicamente viene de
+    // una EDO planteada en un dominio semi-infinito [0,inf) truncado a
+    // [0,1] solo por conveniencia computacional — el origen tiene una
+    // condicion genuina (regularidad/valor inicial de la EDO real), pero el
+    // otro extremo del dominio truncado NO es un dato del problema, es un
+    // corte artificial. Usar un ansatz de dos lados ahi obliga a inventar un
+    // valor de frontera en el corte — si ese valor sale de tablas/solucion
+    // numerica de la EDO real (como pasaba antes con Thomas-Fermi, ver
+    // historial), es fuga de informacion: se le regala al modelo la
+    // respuesta en un punto interior de la fisica real. Ver
+    // apply_boundary_ansatz en pi_solver.cpp. Verificado contra la suite
+    // actual: coincide exactamente con Lane-Emden y Thomas-Fermi, ambas EDOs
+    // genuinamente semi-infinitas truncadas — no se sondea por nombre de EDP
+    // en ningun lado.
+    bool one_sided_boundary = false;
+
     // Simetría especular x <-> 1-x (resp. y <-> 1-y), la relevante para el
     // dominio real [0,1] — a diferencia de even_parity_x (que compara contra
     // x=-1, fuera del dominio). Sólo se marca true si TANTO el operador COMO
@@ -56,6 +77,31 @@ struct PDEPriors {
     // tiempo que pase el sondeo, sin excluir ningun tipo por nombre — asi no
     // es una solucion "hecha a medida" de un solo problema del benchmark.
     bool triple_separable = false;
+
+    // Suma de un termino puro + un termino producto: u(x,y)=f(v)+g(x)h(y),
+    // con v in {x,y}. Generaliza additive/multiplicative_separable (expansion
+    // en modos/autofunciones, ej. Fourier) — cubre estructuras como
+    // y - exp(lambda*x)*sin(2*pi*y)/(2*pi*Re) (Navier-Stokes) que no son ni
+    // puramente aditivas ni puramente multiplicativas. Sondeado sobre el
+    // OPERADOR con una funcion generica (ver probe_priors), nunca sobre la
+    // solucion real. No excluye ningun tipo de EDP por nombre.
+    bool modal_sum_separable = false;
+
+    // El operador trata x e y de forma intercambiable (isotropo/simetrico),
+    // sondeado evaluando el residuo con una funcion de sondeo generica de una
+    // sola variable en un punto y su version con roles x<->y intercambiados
+    // en el punto reflejado — si coinciden, el operador es consistente con
+    // soluciones tipo "cresta"/onda plana f(a*x+b*y) para cualquier angulo,
+    // no solo un eje. Ver skeleton_rotated en tree_node.cpp.
+    bool rotation_invariant = false;
+
+    // Termino de amortiguamiento lineal en la primera derivada (du/dx o
+    // du/dy) mas alla de lo que ya aporta el Laplaciano — la firma
+    // caracteristica de un oscilador amortiguado (u''+2*zeta*omega*u'+
+    // omega^2*u=0). Sondeado perturbando SOLO esa derivada (dejando el resto
+    // fijo) y viendo si el residuo reacciona — ver skeleton_damped_oscillator
+    // en tree_node.cpp.
+    bool damped_oscillator = false;
 };
 
 // ─── Problema PDE ─────────────────────────────────────────────────────────────

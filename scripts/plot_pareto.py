@@ -67,13 +67,31 @@ def plot_pairwise_pareto(df):
         LIME = "#9ACD32"
         GRAY = "#B0B0B0"
 
+        # Muchas EDPs (la mayoria de las 1D, y ahora tambien Thomas-Fermi/
+        # Lane-Emden en 2D/1D) usan el ansatz de frontera EXACTO — ver
+        # apply_boundary_ansatz en pi_solver.cpp — que hace mse_boundary
+        # IDENTICAMENTE 0 por construccion para (casi) todo individuo. Antes
+        # esta funcion siempre graficaba esa columna en escala log en los dos
+        # paneles que la usan ("Physics vs. Boundary", "Boundary vs.
+        # Complexity") — log(0) no es graficable, asi que matplotlib
+        # simplemente OMITIA todos los puntos, dejando esos paneles casi
+        # vacios y dando la falsa impresion de "muy pocos puntos dominados/no
+        # dominados" cuando en realidad el problema era la escala del eje, no
+        # la cantidad de datos (confirmado comparando contra Navier-Stokes,
+        # que usa penalizacion blanda — mse_boundary nunca es exactamente 0
+        # ahi, y esos mismos paneles salen densamente poblados). Se detecta el
+        # caso degenerado y se cambia a escala lineal (el cluster en 0 queda
+        # visible como una linea real, en vez de desaparecer) mas una nota
+        # explicita de por que.
+        bnd_degenerate = (sub["mse_boundary"].abs() < 1e-9).mean() > 0.9
+
         fig, axes = plt.subplots(1, 3, figsize=(15, 4))
         plt.subplots_adjust(wspace=0.3)
 
         pairs = [
-            ("mse_domain", "mse_boundary", "Domain MSE (Physics)", "Boundary MSE", "Physics vs. Boundary", True, True),
+            ("mse_domain", "mse_boundary", "Domain MSE (Physics)", "Boundary MSE", "Physics vs. Boundary", True, not bnd_degenerate),
             ("mse_domain", "tree_size", "Domain MSE (Physics)", "Complexity (Nodes)", "Physics vs. Complexity", True, False),
-            ("mse_boundary", "tree_size", "Boundary MSE", "Complexity (Nodes)", "Boundary vs. Complexity", True, False),
+            ("mse_boundary", "tree_size", "Boundary MSE", "Complexity (Nodes)", "Boundary vs. Complexity", not bnd_degenerate, False),
         ]
         for ax, (xcol, ycol, xlabel, ylabel, title, xlog, ylog) in zip(axes, pairs):
             if not dominated.empty:
@@ -87,6 +105,11 @@ def plot_pairwise_pareto(df):
             ax.set_ylabel(ylabel)
             ax.set_title(title)
             ax.grid(True, which="both", ls="-", alpha=0.2)
+            if bnd_degenerate and "mse_boundary" in (xcol, ycol):
+                ax.text(0.5, 0.5, "Ansatz exacto: MSE Frontera ≡ 0\n(no es eje informativo para esta EDP)",
+                        transform=ax.transAxes, ha="center", va="center", fontsize=8,
+                        color="#666666", style="italic",
+                        bbox=dict(boxstyle="round", fc="white", ec="#cccccc", alpha=0.85))
         axes[0].legend(loc="best", framealpha=0.9)
 
         fig.suptitle(f"Pareto Trade-offs: {pde_label}", fontsize=12, fontweight='bold', y=1.05)

@@ -1,2 +1,2 @@
-method,pde,best_mse_domain,best_mse_boundary,mse_total,runtime_s
-PySR,Duffing_2D,2.666457725337116e-05,0.0,2.666457725337116e-05,41.699607372283936
+method,pde,noise_pct,best_mse_domain,best_mse_boundary,mse_total,runtime_s
+PySR,Duffing_2D,0.0,3.11046914835449e-05,0.0,3.11046914835449e-05,33.37102770805359

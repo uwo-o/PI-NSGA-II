@@ -1,0 +1,2 @@
+method,pde,noise_pct,best_mse_domain,best_mse_boundary,mse_total,runtime_s
+PySR,Laplace_1D,0.1,9.209052253529466e-05,0.0,9.209052253529466e-05,25.531055450439453

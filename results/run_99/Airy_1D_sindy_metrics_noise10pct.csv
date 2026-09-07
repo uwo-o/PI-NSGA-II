@@ -1,0 +1,2 @@
+method,pde,noise_pct,best_mse_domain,best_mse_boundary,mse_total,runtime_s
+PySINDy,Airy_1D,0.1,9.568751166447171e+58,0.0,9.568751166447171e+58,0.009856700897216797

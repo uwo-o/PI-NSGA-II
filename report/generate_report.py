@@ -9,6 +9,7 @@ Fuentes de datos:
 import os, sys, shutil, glob
 import numpy as np
 import pandas as pd
+import generate_noise_table
 
 REPORT_DIR  = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR    = os.path.dirname(REPORT_DIR)
@@ -403,6 +404,24 @@ def make_latex_report():
         r"\section{Data Efficiency vs. State-of-the-Art}",
         r"\input{tables/data_efficiency_comparison.tex}",
         r"",
+        r"% ─── NOISE ROBUSTNESS ──────────────────────────────────────────────────────",
+        r"\section{Robustness to Measurement Noise}",
+        r"PySR and PySINDy are given perfect, noiseless labeled data by construction "
+        r"in the main comparison above — in a real experimental setting, that data would "
+        r"come from sensors with measurement error. This section adds Gaussian noise "
+        r"(as a fraction of the signal's standard deviation) to their training data only, "
+        r"and re-scores against the clean ground truth. PISR-NSGA-II uses zero labeled "
+        r"data (only the PDE residual and boundary conditions) and is therefore not "
+        r"subject to this failure mode.",
+        r"\input{tables/noise_robustness.tex}",
+        r"\begin{figure*}[ht]",
+        r"  \centering",
+        r"  \includegraphics[width=0.95\textwidth]{noise_robustness}",
+        r"  \caption{Total MSE (vs. clean ground truth) as a function of Gaussian noise "
+        r"added to the training data seen by PySR/PySINDy.}",
+        r"  \label{fig:noise_robustness}",
+        r"\end{figure*}",
+        r"",
         r"% ─── CONVERGENCE ───────────────────────────────────────────────────────────",
         r"\section{Global Parsimony \& Complexity}",
         r"\begin{figure*}[ht]",
@@ -476,6 +495,10 @@ if __name__ == "__main__":
     make_symbolic_table()
     make_global_comparison_table()
     make_runtime_table()
+    # Tabla + figura de robustez a ruido (ver sota/sota_benchmark_noise.sh) —
+    # no falla si el barrido de ruido todavia no se corrio, deja un
+    # placeholder para que \input/\includegraphics no rompan el PDF.
+    generate_noise_table.main()
     copy_figures()
     make_latex_report()
     print("\nReport generation complete. Tables in:", TABLES_DIR)

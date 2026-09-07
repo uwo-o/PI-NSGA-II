@@ -1,2 +1,2 @@
-method,pde,best_mse_domain,best_mse_boundary,mse_total,runtime_s
-PySR,Painleve-I_1D,5.267206296819393e-34,0.0,5.267206296819393e-34,26.331305027008057
+method,pde,noise_pct,best_mse_domain,best_mse_boundary,mse_total,runtime_s
+PySR,Painleve-I_1D,0.0,4.1304499287073885e-10,0.0,4.1304499287073885e-10,25.25277614593506

@@ -1,2 +1,2 @@
-method,pde,best_mse_domain,best_mse_boundary,mse_total,runtime_s
-PySINDy,Thomas-Fermi_1D,7.576810252802018e-07,0.0,7.576810252802018e-07,0.005634307861328125
+method,pde,noise_pct,best_mse_domain,best_mse_boundary,mse_total,runtime_s
+PySINDy,Thomas-Fermi_1D,0.0,5.896293331635408e-06,0.0,5.896293331635408e-06,0.005927085876464844

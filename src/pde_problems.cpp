@@ -27,7 +27,23 @@ Complex PDEProblem::exact(double x, double y, double t) const {
             case PDE::AIRY:      return std::exp(-x);
             case PDE::FISHER:    return 1.0 / (1.0 + std::exp(-x));
             case PDE::DUFFING:   return 1.0 / std::cosh(x);
-            case PDE::THOMAS_FERMI: return 1.0 / (x + 0.5);
+            case PDE::THOMAS_FERMI: {
+                // Ancla fisica real (antes: 1/(x+0.5), formula inventada sin
+                // relacion con la ecuacion de Thomas-Fermi — decaia de 2.0 a
+                // 0.667 en vez de la fisica real). La TF real no tiene forma
+                // cerrada, pero SI tiene condiciones de borde y valor conocidos:
+                // y(0)=1, y(1)~=0.4240 (valor tabulado estandar, ver tablas de
+                // Bush & Caldwell). Estos dos anclas son los unicos puntos que
+                // realmente importan: NumericalSolver::solve_rk4_1d dispara
+                // desde bc(0) y apunta a bc(1) integrando la fisica real
+                // (pde_second_derivative) para todo el interior, asi que la
+                // curva resultante en numerical_truth ya sale con la forma
+                // convexa correcta — esta interpolacion lineal solo sirve de
+                // ancla/semilla, no se exporta como "u_exact" (ver
+                // numerical_exact(), que ahora interpola numerical_truth).
+                double r = std::abs(x);
+                return 1.0 - 0.5760 * r;
+            }
             case PDE::NONLINEAR_POISSON:
             case PDE::LIOUVILLE: return 1.0 / (1.0 + x * x);
             case PDE::LANE_EMDEN: return 1.0 - (x * x) / 6.0;
@@ -54,8 +70,10 @@ Complex PDEProblem::exact(double x, double y, double t) const {
                 return 1.0 / (1.0 + std::exp(-(x + y)));
             case PDE::DUFFING:
                 return 1.0 / std::cosh(x + y);
-            case PDE::THOMAS_FERMI:
-                return 1.0 / (x + y + 0.5);
+            case PDE::THOMAS_FERMI: {
+                double r = std::sqrt(x*x + y*y);
+                return 1.0 - 0.5760 * r; // mismo ancla que el caso 1D, ver comentario ahi
+            }
             case PDE::NONLINEAR_POISSON:
             case PDE::LIOUVILLE:
                 return 1.0 / (1.0 + x*x + y*y);
@@ -231,7 +249,16 @@ Complex PDEProblem::pde_second_derivative(double x, Complex u) const {
         case PDE::HARMONIC_OSCILLATOR: return (x*x - 1.0) * u;
         case PDE::FISHER: return -u * (1.0 - u);
         case PDE::DUFFING: return -u - u * u * u;
-        case PDE::THOMAS_FERMI: return std::pow(u.real() + 1e-12, 1.5) / std::sqrt(x + 1e-12);
+        case PDE::THOMAS_FERMI:
+            // eps mas grande que en pde_residual_ad (1e-12) a proposito: esta
+            // funcion la usa UNICAMENTE el shooting RK4 (NumericalSolver), que
+            // integra empezando literalmente en x=0 — con eps=1e-12 el primer
+            // paso ve una pendiente ~1e6 (1/sqrt(1e-12)) y el RK4 con paso finito
+            // (h~0.02 para resolucion=50) diverge sin importar la semilla de
+            // disparo. Con eps=1e-3 la pendiente inicial queda ~32, manejable
+            // para RK4 con ese paso. No afecta el entrenamiento (pde_residual_ad,
+            // que usa su propio eps y nunca samplea exactamente x=0).
+            return std::pow(u.real() + 1e-12, 1.5) / std::sqrt(x + 1e-3);
         case PDE::BRATU: return -2.0 * std::exp(u);
         case PDE::ALLEN_CAHN: return (u*u*u - u) / 0.01;
         case PDE::LANE_EMDEN: return -u*u*u - (2.0 / (x + 1e-6)) * (u - 1.0); // Rough approximation of u'
@@ -243,6 +270,37 @@ Complex PDEProblem::pde_second_derivative(double x, Complex u) const {
 }
 
 Complex PDEProblem::numerical_exact(double x, double y, double t) const {
+    // Antes esta funcion ignoraba numerical_truth por completo y siempre caia
+    // a exact() — invisible para la mayoria de las EDPs "numericas" porque su
+    // exact() ya es una forma cerrada real (Fisher, Duffing), pero para
+    // Thomas-Fermi (que no tiene forma cerrada, solo el ancla de bc()) hacia
+    // que "u_exact" en el CSV exportado y el val_mse de entrenamiento 1D
+    // (ver get_validation_mse) mostraran el placeholder en vez de la curva
+    // realmente resuelta por shooting/RK4 con la fisica correcta. Interpolar
+    // sobre la grilla ya calculada es la fuente de verdad correcta cuando
+    // existe (misma logica que ya usaba el camino 2D de get_validation_mse,
+    // ahora tambien disponible para 1D via esta funcion compartida).
+    if (is_numerical && !numerical_truth.empty()) {
+        if (dim == 1) {
+            int N = (int)numerical_truth.size();
+            double h = 1.0 / (N - 1);
+            double idx = std::clamp(x, 0.0, 1.0) / h;
+            int i0 = std::clamp((int)std::floor(idx), 0, N - 2);
+            double frac = idx - i0;
+            return numerical_truth[i0] * (1.0 - frac) + numerical_truth[i0 + 1] * frac;
+        } else {
+            int N = (int)std::sqrt(numerical_truth.size());
+            double h = 1.0 / (N - 1);
+            double ix = std::clamp(x, 0.0, 1.0) / h, iy = std::clamp(y, 0.0, 1.0) / h;
+            int i0 = std::clamp((int)std::floor(ix), 0, N - 2);
+            int j0 = std::clamp((int)std::floor(iy), 0, N - 2);
+            double fx = ix - i0, fy = iy - j0;
+            Complex c00 = numerical_truth[i0 * N + j0],     c10 = numerical_truth[(i0 + 1) * N + j0];
+            Complex c01 = numerical_truth[i0 * N + j0 + 1], c11 = numerical_truth[(i0 + 1) * N + j0 + 1];
+            return c00 * (1.0 - fx) * (1.0 - fy) + c10 * fx * (1.0 - fy)
+                 + c01 * (1.0 - fx) * fy         + c11 * fx * fy;
+        }
+    }
     return exact(x, y, t);
 }
 
@@ -267,6 +325,11 @@ PDEPriors probe_priors(const PDEProblem& prob) {
     // 3. Probar Singularidad en el Origen (Polo)
     Complex res_origin = prob.pde_residual_ad(dummy_ad, 1e-6, 1e-6, 0.0);
     if (std::abs(res_origin) > 1e4 || !std::isfinite(res_origin.real())) priors.pole_at_origin = true;
+    // Ver comentario junto a PDEPriors::one_sided_boundary: un polo en el
+    // origen es la señal generica de que el dominio [0,1] es un corte
+    // artificial de una EDO semi-infinita, asi que solo el origen tiene una
+    // condicion de frontera genuina.
+    priors.one_sided_boundary = priors.pole_at_origin;
 
     // 4. Análisis de Homogeneidad (Invarianza de Escala)
     // Probamos si R(u, x, t) == R(lambda*u, lambda*x, lambda^2*t)
@@ -391,6 +454,113 @@ PDEPriors probe_priors(const PDEProblem& prob) {
         if (!priors.additive_separable) priors.multiplicative_separable = probe_mixing(true);
     }
 
+    // 9b. Suma modal (superposicion): u(x,y)=f(v)+g(x)h(y). Generaliza
+    // additive/multiplicative_separable a "un termino puro + un termino
+    // producto" — la condicion que habilita esa forma NO es una lista de
+    // nombres de EDPs sino una propiedad real del operador: que sea
+    // afin-lineal en u (L[a*u1+b*u2] = a*L[u1]+b*L[u2]+cte), que es
+    // justamente lo que permite sumar piezas de solucion (superposicion +
+    // separacion de variables, tecnica clasica de EDPs lineales). Se sondea
+    // escalando una funcion de prueba generica sin(x)sin(y) y comparando el
+    // residuo resultante contra lo que predice linealidad afin (afin, no
+    // estrictamente homogenea, para tolerar terminos fuente/constantes
+    // aditivos) — nunca se asume la forma a mano ni se excluye ninguna EDP
+    // por nombre. Cubre estructuras como
+    // y - exp(lambda*x)*sin(2*pi*y)/(2*pi*Re) (Navier-Stokes), pero aplica
+    // igual a cualquier otra EDP lineal de la suite (Laplace, Poisson,
+    // Helmholtz, Schrodinger).
+    if (prob.dim == 2) {
+        AD probe0;
+        Complex r0 = prob.pde_residual_ad(probe0, 0.37, 0.61, 0.0);
+        bool is_affine_linear = std::isfinite(r0.real());
+        for (double x0 : {0.2, 0.5, 0.8}) {
+            for (double y0 : {0.3, 0.6}) {
+                auto eval_scaled = [&](double s) -> Complex {
+                    AD p;
+                    double sx = std::sin(x0), cx = std::cos(x0), sy = std::sin(y0), cy = std::cos(y0);
+                    p.v = s * sx * sy; p.dx = s * cx * sy; p.dy = s * sx * cy;
+                    p.dxx = -s * sx * sy; p.dyy = -s * sx * sy;
+                    return prob.pde_residual_ad(p, x0, y0, 0.0);
+                };
+                Complex r1 = eval_scaled(1.0), r2 = eval_scaled(2.0);
+                if (!std::isfinite(r1.real()) || !std::isfinite(r2.real())) { is_affine_linear = false; break; }
+                Complex expected_r2 = r0 + 2.0 * (r1 - r0);
+                double scale = std::max({std::abs(r1), std::abs(r2), 1.0});
+                if (std::abs(r2 - expected_r2) > 1e-6 * scale) { is_affine_linear = false; break; }
+            }
+            if (!is_affine_linear) break;
+        }
+        priors.modal_sum_separable = is_affine_linear;
+    }
+
+    // 9c. Invarianza rotacional/diagonal: el operador trata x e y de forma
+    // intercambiable. Se sondea con una funcion de UNA sola variable (sin(x))
+    // evaluada en (x0,y0), comparada contra la misma funcion de una sola
+    // variable pero con roles x<->y intercambiados evaluada en el punto
+    // reflejado (y0,x0) — si el operador no privilegia a x sobre y (ej.
+    // Laplace/Poisson/Helmholtz/Navier-Stokes, todos isotropos en la
+    // segunda derivada), ambos residuos coinciden. Nunca usa bc() (irrelevante
+    // para Navier-Stokes, ver comentario de mirror symmetry mas arriba), asi
+    // que es igual de valido para cualquier EDP 2D, no solo Navier-Stokes.
+    if (prob.dim == 2) {
+        auto eval_x_only = [&](double x, double y) -> Complex {
+            AD p;
+            double sx = std::sin(x), cx = std::cos(x);
+            p.v = sx; p.dx = cx; p.dxx = -sx; p.dy = 0.0; p.dyy = 0.0;
+            return prob.pde_residual_ad(p, x, y, 0.0);
+        };
+        auto eval_y_only = [&](double x, double y) -> Complex {
+            AD p;
+            double sy = std::sin(y), cy = std::cos(y);
+            p.v = sy; p.dy = cy; p.dyy = -sy; p.dx = 0.0; p.dxx = 0.0;
+            return prob.pde_residual_ad(p, x, y, 0.0);
+        };
+        bool rot_ok = true;
+        for (double x0 : {0.2, 0.5, 0.8}) {
+            for (double y0 : {0.3, 0.6}) {
+                Complex r1 = eval_x_only(x0, y0);
+                Complex r2 = eval_y_only(y0, x0);
+                if (!std::isfinite(r1.real()) || !std::isfinite(r2.real())) { rot_ok = false; break; }
+                double scale = std::max({std::abs(r1), std::abs(r2), 1.0});
+                if (std::abs(r1 - r2) > 1e-6 * scale) { rot_ok = false; break; }
+            }
+            if (!rot_ok) break;
+        }
+        priors.rotation_invariant = rot_ok;
+    }
+
+    // 9d. Amortiguamiento lineal en la primera derivada: se sondea si el
+    // residuo depende explicitamente de du/dx (o du/dy en 2D) mas alla de lo
+    // que ya aporta el Laplaciano (dxx/dyy) — la firma de un oscilador
+    // amortiguado (u''+2*zeta*omega*u'+omega^2*u=0), donde el termino u'
+    // entra LINEAL y SOLO, sin mezclarse con el resto de la fisica. Se
+    // perturba unicamente esa derivada (dejando v, dxx, dy, dyy fijos en
+    // valores genericos) y se mide si el residuo cambia — un operador
+    // puramente Laplaciano (la mayoria de la suite) no reacciona. Cubre
+    // Lane-Emden (termino (2/x)*u') y Navier-Stokes (termino -(dx+dy)) sin
+    // excluir ni incluir ningun tipo por nombre.
+    {
+        auto probe_dx = [&](double dx_val) -> Complex {
+            AD p; p.v = 0.5; p.dx = dx_val; p.dy = 0.3; p.dxx = -0.2; p.dyy = -0.2;
+            return prob.pde_residual_ad(p, 0.4, 0.4, 0.0);
+        };
+        Complex ra = probe_dx(0.0), rb = probe_dx(1.0);
+        bool damped_x = std::isfinite(ra.real()) && std::isfinite(rb.real())
+                       && std::abs(rb - ra) > 1e-6;
+
+        bool damped_y = false;
+        if (prob.dim == 2) {
+            auto probe_dy = [&](double dy_val) -> Complex {
+                AD p; p.v = 0.5; p.dx = 0.3; p.dy = dy_val; p.dxx = -0.2; p.dyy = -0.2;
+                return prob.pde_residual_ad(p, 0.4, 0.4, 0.0);
+            };
+            Complex rc = probe_dy(0.0), rd = probe_dy(1.0);
+            damped_y = std::isfinite(rc.real()) && std::isfinite(rd.real())
+                     && std::abs(rd - rc) > 1e-6;
+        }
+        priors.damped_oscillator = damped_x || damped_y;
+    }
+
     // Separabilidad triple u(x,y,t)=f(x)g(y)h(t) para EDPs dependientes del
     // tiempo — mismo principio, generalizado a sondear las 3 derivadas
     // cruzadas (xy, xt, yt) con una funcion de sondeo generica
@@ -441,40 +611,35 @@ PDEPriors probe_priors(const PDEProblem& prob) {
 
 Complex PDEProblem::compute_residual(const Node* tree, const Point& p) const {
     if (type == PDE::NAVIER_STOKES_UNSTEADY) {
-        double nu = k2; double h = 0.01; double ht = 0.01;
-        AD ad_c = tree->ad_eval_t(p.x, p.y, p.t, dim);
-        Complex u = ad_c.dy, v = -ad_c.dx;
-        Complex w = -(ad_c.dxx + ad_c.dyy);
-        
-        AD ad_xp = tree->ad_eval_t(p.x+h, p.y, p.t, dim);
-        AD ad_xm = tree->ad_eval_t(p.x-h, p.y, p.t, dim);
-        AD ad_yp = tree->ad_eval_t(p.x, p.y+h, p.t, dim);
-        AD ad_ym = tree->ad_eval_t(p.x, p.y-h, p.t, dim);
-        
-        Complex w_x = (-(ad_xp.dxx + ad_xp.dyy) - (-(ad_xm.dxx + ad_xm.dyy))) / (2.0 * h);
-        Complex w_y = (-(ad_yp.dxx + ad_yp.dyy) - (-(ad_ym.dxx + ad_ym.dyy))) / (2.0 * h);
-        Complex lap_w = (-(ad_xp.dxx + ad_xp.dyy) + (-(ad_xm.dxx + ad_xm.dyy)) + (-(ad_yp.dxx + ad_yp.dyy)) + (-(ad_ym.dxx + ad_ym.dyy)) - 4.0 * w) / (h * h);
-        
-        AD ad_tp = tree->ad_eval_t(p.x, p.y, p.t+ht, dim);
-        AD ad_tm = tree->ad_eval_t(p.x, p.y, p.t-ht, dim);
-        Complex w_t = (-(ad_tp.dxx + ad_tp.dyy) - (-(ad_tm.dxx + ad_tm.dyy))) / (2.0 * ht);
-        
+        // Antes: diferencias finitas (5 evaluaciones extra del arbol completo
+        // por punto) para w_x, w_y, lap_w, w_t. Ahora AD exacto hasta 4to
+        // orden (ver AD en common.hpp y apply_composition/apply_mul_ad en
+        // tree_node.cpp) — una sola evaluacion, sin ruido de paso finito.
+        // psi=ad.v (funcion de corriente), u=psi_y, v=-psi_x,
+        // w=-(psi_xx+psi_yy) (vorticidad).
+        // ad_eval_ext_t (no ad_eval_t): camino paralelo que SI calcula los 12
+        // campos de 3er/4to orden — ver Node::ad_eval_ext_t en tree_node.hpp.
+        // El resto de la suite sigue en ad_eval_t (rapido, 7 campos) sin
+        // pagar este costo.
+        double nu = k2;
+        AD ad = tree->ad_eval_ext_t(p.x, p.y, p.t, dim);
+        Complex u = ad.dy, v = -ad.dx;
+        Complex w_x   = -(ad.dxxx + ad.dxyy);
+        Complex w_y   = -(ad.dxxy + ad.dyyy);
+        Complex lap_w = -(ad.dxxxx + 2.0*ad.dxxyy + ad.dyyyy);
+        Complex w_t   = -(ad.dxxt + ad.dyyt);
         return w_t + u * w_x + v * w_y - nu * lap_w;
     } else if (type == PDE::NAVIER_STOKES) {
-        double nu = k2; double h = 0.01;
-        AD ad_c = tree->ad_eval_t(p.x, p.y, p.t, dim);
-        Complex psi_x = ad_c.dx, psi_y = ad_c.dy;
-        Complex L_val = (ad_c.dxx + ad_c.dyy);
-        
-        AD ad_xp = tree->ad_eval_t(p.x+h, p.y, p.t, dim);
-        AD ad_xm = tree->ad_eval_t(p.x-h, p.y, p.t, dim);
-        AD ad_yp = tree->ad_eval_t(p.x, p.y+h, p.t, dim);
-        AD ad_ym = tree->ad_eval_t(p.x, p.y-h, p.t, dim);
-        
-        Complex L_x = ((ad_xp.dxx + ad_xp.dyy) - (ad_xm.dxx + ad_xm.dyy)) / (2.0*h);
-        Complex L_y = ((ad_yp.dxx + ad_yp.dyy) - (ad_ym.dxx + ad_ym.dyy)) / (2.0*h);
-        Complex biharmonic = ((ad_xp.dxx + ad_xp.dyy) + (ad_xm.dxx + ad_xm.dyy) + 
-                             (ad_yp.dxx + ad_yp.dyy) + (ad_ym.dxx + ad_ym.dyy) - 4.0*L_val) / (h*h);
+        // Idem, version estacionaria: psi_y*L_x - psi_x*L_y - nu*biharmonico,
+        // con L=psi_xx+psi_yy, L_x=psi_xxx+psi_xyy, L_y=psi_xxy+psi_yyy,
+        // biharmonico=psi_xxxx+2*psi_xxyy+psi_yyyy — todo via AD exacto
+        // (ad_eval_ext_t, ver comentario arriba).
+        double nu = k2;
+        AD ad = tree->ad_eval_ext_t(p.x, p.y, p.t, dim);
+        Complex psi_x = ad.dx, psi_y = ad.dy;
+        Complex L_x = ad.dxxx + ad.dxyy;
+        Complex L_y = ad.dxxy + ad.dyyy;
+        Complex biharmonic = ad.dxxxx + 2.0*ad.dxxyy + ad.dyyyy;
         return psi_y * L_x - psi_x * L_y - nu * biharmonic;
     } else {
         AD ad = tree->ad_eval_t(p.x, p.y, p.t, dim);
@@ -507,6 +672,11 @@ double PDEProblem::compute_boundary_error(const Node* tree, const std::vector<Po
     // exacta en cada punto de frontera (para Unsteady, en TODO el rango de
     // t) — mucha mas informacion que un Dirichlet real, lo que explicaba
     // resultados "demasiado buenos para ser verdad" en Navier-Stokes-Unsteady.
+    // Nota: las EDPs con priors.one_sided_boundary (dominio semi-infinito
+    // truncado, ver pde_problems.hpp) ya no llegan aca — usan el ansatz
+    // exacto de un solo lado (apply_boundary_ansatz en pi_solver.cpp), que
+    // ancla el origen por construccion sin depender de esta penalizacion
+    // blanda ni del muestreo del mini-batch `bnd`.
     for (auto& p : bnd) {
         Complex val = tree->eval_t(p.x, p.y, p.t);
         Complex target = bc(p.x, p.y, p.t);

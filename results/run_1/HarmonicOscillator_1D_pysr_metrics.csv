@@ -1,2 +1,2 @@
-method,pde,best_mse_domain,best_mse_boundary,mse_total,runtime_s
-PySR,HarmonicOscillator_1D,6.889758469259691e-14,0.0,6.889758469259691e-14,72.3965277671814
+method,pde,noise_pct,best_mse_domain,best_mse_boundary,mse_total,runtime_s
+PySR,HarmonicOscillator_1D,0.0,6.898953593856135e-14,0.0,6.898953593856135e-14,30.43943500518799
